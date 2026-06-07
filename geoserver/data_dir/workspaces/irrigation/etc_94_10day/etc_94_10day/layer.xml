@@ -1,0 +1,19 @@
+<layer>
+  <name>etc_94_10day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-7631</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-7531</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-7632</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:56:34.179 UTC</dateCreated>
+  <dateModified>2026-06-07 07:56:34.200 UTC</dateModified>
+</layer>

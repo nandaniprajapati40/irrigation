@@ -1,0 +1,19 @@
+<layer>
+  <name>iwr_90_15day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-6adb</id>
+  <type>RASTER</type>
+  <defaultStyle class="dynamic-proxy">
+    <id>iwr_forecast_style</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-6adc</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:57:32.929 UTC</dateCreated>
+  <dateModified>2026-06-07 07:57:32.952 UTC</dateModified>
+</layer>

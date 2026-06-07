@@ -1,0 +1,19 @@
+<layer>
+  <name>etc_12</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-7acf</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-7531</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-7ad0</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:55:52.679 UTC</dateCreated>
+  <dateModified>2026-06-07 07:55:52.698 UTC</dateModified>
+</layer>

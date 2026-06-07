@@ -1,0 +1,19 @@
+<layer>
+  <name>kc_140_15day</name>
+  <id>LayerInfoImpl--2774525f:19ea1105caf:-717b</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-717d</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--2774525f:19ea1105caf:-717c</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:53:49.772 UTC</dateCreated>
+  <dateModified>2026-06-07 07:53:49.836 UTC</dateModified>
+</layer>

@@ -1,0 +1,19 @@
+<layer>
+  <name>cwr_155_10day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-6e50</id>
+  <type>RASTER</type>
+  <defaultStyle class="dynamic-proxy">
+    <id>cwr_forecast_style</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-6e51</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:57:15.227 UTC</dateCreated>
+  <dateModified>2026-06-07 07:57:15.257 UTC</dateModified>
+</layer>

@@ -1,0 +1,19 @@
+<layer>
+  <name>iwr_34_10day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-6cd6</id>
+  <type>RASTER</type>
+  <defaultStyle class="dynamic-proxy">
+    <id>iwr_forecast_style</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-6cd7</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:57:22.795 UTC</dateCreated>
+  <dateModified>2026-06-07 07:57:22.814 UTC</dateModified>
+</layer>

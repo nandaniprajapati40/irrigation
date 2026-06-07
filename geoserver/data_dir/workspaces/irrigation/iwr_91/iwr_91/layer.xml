@@ -1,0 +1,19 @@
+<layer>
+  <name>iwr_91</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-7b77</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-7370</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-7b78</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:55:48.367 UTC</dateCreated>
+  <dateModified>2026-06-07 07:55:48.393 UTC</dateModified>
+</layer>
