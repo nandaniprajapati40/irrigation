@@ -27,10 +27,6 @@
           </button>
         </div>
       </div>
-
-      <!-- Chart type badge -->
-      <div class="chart-type-badge">
-      </div>
     </div>
 
     <!-- Loading -->

@@ -10,7 +10,40 @@
     <!-- ── Controls ── -->
     <div class="chart-controls">
 
-      <div class="control-group view-control">
+      <div class="control-group mode-control">
+        <label>View</label>
+        <div class="toggle-switch" role="group" aria-label="Pixel graph view">
+          <button
+            type="button"
+            class="toggle-option"
+            :class="{ active: mode === 'date' }"
+            :aria-pressed="mode === 'date'"
+            @click="setMode('date')"
+          >
+            Date-wise
+          </button>
+          <button
+            type="button"
+            class="toggle-option"
+            :class="{ active: mode === 'monthly' }"
+            :aria-pressed="mode === 'monthly'"
+            @click="setMode('monthly')"
+          >
+            Monthly
+          </button>
+          <button
+            type="button"
+            class="toggle-option"
+            :class="{ active: mode === 'cumulative' }"
+            :aria-pressed="mode === 'cumulative'"
+            @click="setMode('cumulative')"
+          >
+            Cumulative
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group season-control">
         <label>Season</label>
         <div ref="seasonDropdownRef" class="season-multi-select" :class="{ open: seasonMenuOpen }">
           <button
@@ -82,7 +115,10 @@
         <path d="M3 3h18v18H3z"/><path d="M9 9l6 6M15 9l-6 6"/>
       </svg>
       <template v-if="chartLayers.length === 0">Select a layer to show the pixel graph.</template>
-      <template v-else>No data stored for <strong>{{ chartLayerLabel }}</strong> at this pixel yet.</template>
+      <template v-else-if="mode === 'cumulative' && renderChartLayers.length === 0">
+        Cumulative view is available for <strong>CWR</strong> and <strong>IWR</strong> layers.
+      </template>
+      <template v-else>No data stored for <strong>{{ renderChartLayerLabel }}</strong> at this pixel yet.</template>
     </div>
 
     <!-- ── Chart ── -->
@@ -178,7 +214,7 @@ let chartBuildInProgress = false
 let chartDestroying = false
 
 const selectedLayer = ref(props.modelLayer || props.initialLayer || null)
-const mode = ref('monthly')
+const mode = ref('date')
 const error = ref(null)
 const chartOpacity = ref(clamp(Number(props.modelOpacity) || 0.9, 0.2, 1))
 const chartViewportWidth = ref(0)
@@ -190,19 +226,26 @@ const MIN_CHART_VIEWPORT_WIDTH = 280
 
 // ── Layer metadata (same units as DataChart / info panel) ─────────────────
 const LAYER_CONFIG = {
-  savi: { full_name: 'SAVI',  unit: '' },
-  kc:   { full_name: 'KC',    unit: '' },
-  cwr:  { full_name: 'CWR',   unit: 'mm/day' },
-  iwr:  { full_name: 'IWR',   unit: 'mm/day' },
-  etc:  { full_name: 'ETC',   unit: 'mm/day' },
+  savi: { full_name: 'SAVI',  unit: '', monthly_unit: '' },
+  kc:   { full_name: 'KC',    unit: '', monthly_unit: '' },
+  cwr:  { full_name: 'CWR',   unit: 'mm/day', monthly_unit: 'mm/day', cumulative_unit: 'mm' },
+  iwr:  { full_name: 'IWR',   unit: 'mm/day', monthly_unit: 'mm/day', cumulative_unit: 'mm' },
+  etc:  { full_name: 'ETC',   unit: 'mm/day', monthly_unit: 'mm/day' },
 }
 const layerKeys = Object.keys(LAYER_CONFIG)
+const CUMULATIVE_LAYERS = new Set(['cwr', 'iwr'])
+const PIXEL_VIEW_MODES = new Set(['date', 'monthly', 'cumulative'])
 
 const MONTH_NAMES_SHORT = {
   '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr',
   '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Aug',
   '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec',
 }
+const SEASON_MONTHS = [11, 12, 1, 2, 3, 4]
+const SEASON_MONTH_INDEX = SEASON_MONTHS.reduce((acc, month, index) => {
+  acc[month] = index
+  return acc
+}, {})
 
 // Multi-season colour palette — matches DataChart's YEAR_COLORS
 const SEASON_COLORS = [
@@ -276,6 +319,91 @@ function alphaHex(opacity) {
   return Math.round(clamp(opacity, 0, 1) * 255).toString(16).padStart(2, '0')
 }
 
+function normalizePixelMode(value) {
+  const normalized = String(value || '').toLowerCase()
+  if (normalized === 'date-wise' || normalized === 'datewise' || normalized === 'daily') return 'date'
+  return PIXEL_VIEW_MODES.has(normalized) ? normalized : 'date'
+}
+
+function setMode(nextMode) {
+  const normalized = normalizePixelMode(nextMode)
+  if (normalized !== mode.value) mode.value = normalized
+}
+
+function monthName(month) {
+  return MONTH_NAMES_SHORT[String(month).padStart(2, '0')] || String(month)
+}
+
+function seasonMonthSortValue(month) {
+  return SEASON_MONTH_INDEX[month] ?? 99
+}
+
+function seasonMonthYear(season, month) {
+  const startYear = seasonStartYear(season)
+  return month >= 11 ? startYear : startYear + 1
+}
+
+function daysInMonth(year, month) {
+  return new Date(year, month, 0).getDate()
+}
+
+function roundChartValue(value, decimals = 4) {
+  const factor = 10 ** decimals
+  return Math.round(value * factor) / factor
+}
+
+function aggregateMonthlyRecords(records) {
+  const grouped = new Map()
+
+  buildObservationSeries(records).forEach(record => {
+    const month = Number(record.date.slice(5, 7))
+    if (!Number.isFinite(month) || !(month in SEASON_MONTH_INDEX)) return
+
+    const season = getSeasonId(record.date)
+    const key = `${season}|${month}`
+    if (!grouped.has(key)) grouped.set(key, { season, month, values: [] })
+    grouped.get(key).values.push(record.value)
+  })
+
+  return [...grouped.values()]
+    .map(group => ({
+      season: group.season,
+      month: group.month,
+      value: group.values.reduce((sum, value) => sum + value, 0) / group.values.length,
+    }))
+    .filter(row => Number.isFinite(row.value))
+    .sort((a, b) => {
+      const seasonDelta = seasonStartYear(a.season) - seasonStartYear(b.season)
+      if (seasonDelta !== 0) return seasonDelta
+      return seasonMonthSortValue(a.month) - seasonMonthSortValue(b.month)
+    })
+}
+
+function buildMonthlyChartData(layers = renderChartLayers.value) {
+  const monthlyByLayer = new Map()
+  const seasons = new Set()
+  const months = new Set()
+
+  layers.forEach(layer => {
+    const rows = aggregateMonthlyRecords(seasonRecordsByLayer.value[layer] || [])
+    monthlyByLayer.set(layer, rows)
+    rows.forEach(row => {
+      seasons.add(row.season)
+      months.add(row.month)
+    })
+  })
+
+  return {
+    monthlyByLayer,
+    seasons: [...seasons].sort((a, b) => seasonStartYear(a) - seasonStartYear(b)),
+    months: SEASON_MONTHS.filter(month => months.has(month)),
+  }
+}
+
+function monthlyValueMap(rows) {
+  return new Map(rows.map(row => [`${row.season}|${row.month}`, row.value]))
+}
+
 function selectedSeasonList(seasons = availableSeasons.value) {
   const allowed = new Set(seasons)
   const unique = selectedSeasons.value
@@ -327,9 +455,22 @@ const chartLayers = computed(() => {
   return unique
 })
 
+const renderChartLayers = computed(() => {
+  if (mode.value === 'cumulative') {
+    return chartLayers.value.filter(layer => CUMULATIVE_LAYERS.has(layer))
+  }
+  return chartLayers.value
+})
+
 const chartLayerLabel = computed(() => {
   if (chartLayers.value.length === 0) return 'Select layer'
   const labels = chartLayers.value.map(layer => LAYER_CONFIG[layer]?.full_name || layer.toUpperCase())
+  return labels.length > 1 ? labels.join(' + ') : labels[0]
+})
+
+const renderChartLayerLabel = computed(() => {
+  if (renderChartLayers.value.length === 0) return chartLayerLabel.value
+  const labels = renderChartLayers.value.map(layer => LAYER_CONFIG[layer]?.full_name || layer.toUpperCase())
   return labels.length > 1 ? labels.join(' + ') : labels[0]
 })
 
@@ -379,11 +520,13 @@ const seasonRecordsByLayer = computed(() => {
 })
 
 const recordCount = computed(() => {
-  return Object.values(seasonRecordsByLayer.value).reduce((sum, records) => sum + records.length, 0)
+  return renderChartLayers.value.reduce((sum, layer) => {
+    return sum + (seasonRecordsByLayer.value[layer]?.length || 0)
+  }, 0)
 })
 
 const canRenderChart = computed(() => {
-  return Boolean(props.pixelData && chartLayers.value.length > 0 && recordCount.value > 0)
+  return Boolean(props.pixelData && renderChartLayers.value.length > 0 && recordCount.value > 0)
 })
 
 const chartCanvasWidth = computed(() => {
@@ -534,11 +677,14 @@ async function buildChart() {
     return
   }
 
-  const primaryLayer = selectedLayer.value || chartLayers.value[0]
+  const primaryLayer = renderChartLayers.value[0] || selectedLayer.value || chartLayers.value[0]
   const cfg = LAYER_CONFIG[primaryLayer] || { full_name: primaryLayer, unit: '' }
-  const unitLabel = chartLayers.value.length > 1
-    ? 'Value'
-    : (cfg.unit ? `${cfg.full_name} (${cfg.unit})` : cfg.full_name)
+  const unit = mode.value === 'cumulative'
+    ? (cfg.cumulative_unit || cfg.unit)
+    : (mode.value === 'monthly' ? (cfg.monthly_unit || cfg.unit) : cfg.unit)
+  const unitLabel = renderChartLayers.value.length > 1
+    ? (mode.value === 'cumulative' ? 'Cumulative value (mm)' : 'Value')
+    : (unit ? `${cfg.full_name} (${unit})` : cfg.full_name)
 
   const isGlass = props.theme === 'glass'
   const textColor = '#1f2937'
@@ -548,19 +694,60 @@ async function buildChart() {
   const canvasBg = '#fff'
 
   if (runId !== chartBuildRun) return
-  renderMonthly({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg })
+  if (mode.value === 'date') {
+    renderDatewise({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg })
+  } else if (mode.value === 'monthly') {
+    renderMonthlyAggregation({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg })
+  } else {
+    renderCumulative({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg })
+  }
 }
 
-// ── Timeline: one point for each available raster date ───────────────────
-function renderMonthly({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg }) {
+function mountOrUpdateChart(canvas, labels, datasets, chartConfig) {
+  const existingChart = chart || Chart.getChart(canvas)
+  if (existingChart && existingChart.canvas === canvas && existingChart.ctx) {
+    chart = existingChart
+    chart.stop()
+    chart.data.labels = labels
+    chart.data.datasets = datasets
+    chart.options = chartConfig
+    try {
+      chart.update('none')
+      chart.resize()
+    } catch (err) {
+      if (isChartCanvasConnected()) console.warn('Chart update skipped:', err)
+    }
+    return
+  }
+
+  if (existingChart) {
+    try {
+      existingChart.destroy()
+    } catch (err) {
+      console.warn('Stale chart cleanup skipped:', err)
+    }
+  }
+
+  chart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets,
+    },
+    options: chartConfig,
+  })
+}
+
+// ── Date-wise: one point for each available raster date ──────────────────
+function renderDatewise({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg }) {
   if (runId !== chartBuildRun || chartDestroying || !isChartCanvasConnected()) return
 
-  if (chartLayers.value.length === 1 && activeSeasons.value.length > 1) {
+  if (renderChartLayers.value.length === 1 && activeSeasons.value.length > 1) {
     renderSeasonComparison({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg })
     return
   }
 
-  const observationsByLayer = chartLayers.value.map(layer => ({
+  const observationsByLayer = renderChartLayers.value.map(layer => ({
     layer,
     observations: buildObservationSeries(seasonRecordsByLayer.value[layer] || []),
   })).filter(item => item.observations.length > 0)
@@ -713,7 +900,7 @@ function renderMonthly({ runId, textColor, gridColor, tooltipBg, tooltipBorder, 
 function renderSeasonComparison({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg }) {
   if (runId !== chartBuildRun || chartDestroying || !isChartCanvasConnected()) return
 
-  const layer = chartLayers.value[0]
+  const layer = renderChartLayers.value[0]
   const layerRecords = chartRecordsByLayer.value[layer] || []
   const observationsBySeason = activeSeasons.value
     .map(season => ({
@@ -861,6 +1048,282 @@ function renderSeasonComparison({ runId, textColor, gridColor, tooltipBg, toolti
   })
 }
 
+// ── Monthly: selected-pixel monthly means across the Rabi timeline ────────
+function renderMonthlyAggregation({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg }) {
+  if (runId !== chartBuildRun || chartDestroying || !isChartCanvasConnected()) return
+
+  const { monthlyByLayer, seasons, months } = buildMonthlyChartData()
+  if (seasons.length === 0 || months.length === 0) {
+    error.value = 'No monthly data available for this pixel'
+    return
+  }
+
+  const labelKeys = []
+  seasons.forEach(season => {
+    months.forEach(month => {
+      labelKeys.push({ season, month })
+    })
+  })
+
+  const labels = labelKeys.map(({ season, month }) => `${monthName(month)} ${season}`)
+  const densePoints = labels.length > 140
+  const canvas = chartCanvas.value
+  if (!canvas || !canvas.isConnected) return
+  if (runId !== chartBuildRun || !canvas.isConnected) return
+
+  const opacityHex = alphaHex(chartOpacity.value)
+  const datasets = renderChartLayers.value.map((layer, index) => {
+    const valuesByMonth = monthlyValueMap(monthlyByLayer.get(layer) || [])
+    const color = layerColor(layer, index)
+    const fillSingleSeries = renderChartLayers.value.length === 1
+
+    return {
+      label: LAYER_CONFIG[layer]?.full_name || layer.toUpperCase(),
+      data: labelKeys.map(({ season, month }) => {
+        const value = valuesByMonth.get(`${season}|${month}`)
+        return Number.isFinite(value) ? roundChartValue(value, 4) : null
+      }),
+      borderColor: color + opacityHex,
+      backgroundColor: color + Math.round(chartOpacity.value * (fillSingleSeries ? 42 : 28)).toString(16).padStart(2, '0'),
+      borderWidth: densePoints ? 2.1 : 2.6,
+      tension: 0.35,
+      pointRadius: densePoints ? 1.8 : 3,
+      pointHoverRadius: densePoints ? 5 : 7,
+      pointBackgroundColor: color + opacityHex,
+      pointBorderColor: '#fff',
+      pointBorderWidth: densePoints ? 1.2 : 1.8,
+      fill: fillSingleSeries,
+      spanGaps: false,
+    }
+  })
+
+  const chartConfig = {
+    responsive: true,
+    maintainAspectRatio: false,
+    resizeDelay: 80,
+    devicePixelRatio: chartCanvasWidth.value > 7000 ? 1 : Math.min(window.devicePixelRatio || 1, 1.6),
+    interaction: { mode: 'index', intersect: false },
+    animation: {
+      duration: densePoints ? 260 : 460,
+      easing: 'easeOutQuart',
+    },
+    transitions: {
+      active: { animation: { duration: 140 } },
+      resize: { animation: { duration: 180 } },
+    },
+    layout: { padding: { top: 8, right: 12, bottom: 6, left: 4 } },
+    plugins: {
+      canvasBackgroundPlugin: { color: canvasBg },
+      legend: {
+        display: datasets.length > 1,
+        position: 'top',
+        align: 'end',
+        labels: {
+          color: textColor,
+          font: { size: 12, family: "'Inter','Segoe UI',sans-serif", weight: '600' },
+          boxWidth: 24,
+          padding: 16,
+        },
+      },
+      tooltip: {
+        backgroundColor: tooltipBg,
+        titleColor: textColor,
+        bodyColor: textColor,
+        borderColor: tooltipBorder,
+        borderWidth: 1,
+        padding: 12,
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y
+            return v === null
+              ? ` ${ctx.dataset.label}: No data`
+              : ` ${ctx.dataset.label}: ${v.toFixed(4)}`
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { size: 10, family: "'Inter','Segoe UI',sans-serif", weight: '500' },
+          maxRotation: 45,
+          autoSkip: true,
+          maxTicksLimit: xTickLimit(labels.length),
+        },
+      },
+      y: {
+        grid: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { size: 11, family: "'Inter','Segoe UI',sans-serif", weight: '500' },
+        },
+        title: {
+          display: true,
+          text: unitLabel,
+          color: textColor,
+          font: { size: 12, family: "'Inter','Segoe UI',sans-serif", weight: '600' },
+        },
+      },
+    },
+  }
+
+  mountOrUpdateChart(canvas, labels, datasets, chartConfig)
+}
+
+// ── Cumulative: running selected-pixel CWR/IWR totals by season ───────────
+function renderCumulative({ runId, textColor, gridColor, tooltipBg, tooltipBorder, unitLabel, canvasBg }) {
+  if (runId !== chartBuildRun || chartDestroying || !isChartCanvasConnected()) return
+
+  const { monthlyByLayer, seasons, months } = buildMonthlyChartData()
+  if (seasons.length === 0 || months.length === 0) {
+    error.value = 'No cumulative data available for this pixel'
+    return
+  }
+
+  const labels = months.map(monthName)
+  const canvas = chartCanvas.value
+  if (!canvas || !canvas.isConnected) return
+  if (runId !== chartBuildRun || !canvas.isConnected) return
+
+  const opacityHex = alphaHex(chartOpacity.value)
+  const singleLayer = renderChartLayers.value.length === 1
+  const singleSeason = seasons.length === 1
+  const datasets = []
+
+  renderChartLayers.value.forEach((layer, layerIndex) => {
+    const valuesByMonth = monthlyValueMap(monthlyByLayer.get(layer) || [])
+
+    seasons.forEach((season, seasonIndex) => {
+      let running = 0
+      let hasData = false
+      const color = singleLayer
+        ? SEASON_COLORS[seasonIndex % SEASON_COLORS.length]
+        : layerColor(layer, layerIndex + seasonIndex)
+      const data = months.map(month => {
+        const value = valuesByMonth.get(`${season}|${month}`)
+        if (!Number.isFinite(value)) return null
+
+        const year = seasonMonthYear(season, month)
+        running += value * daysInMonth(year, month)
+        hasData = true
+        return roundChartValue(running, 4)
+      })
+
+      if (!hasData) return
+
+      const layerLabel = LAYER_CONFIG[layer]?.full_name || layer.toUpperCase()
+      const label = singleLayer && !singleSeason
+        ? season
+        : (singleSeason ? layerLabel : `${layerLabel} ${season}`)
+
+      datasets.push({
+        label,
+        data,
+        borderColor: color + opacityHex,
+        backgroundColor: color + Math.round(chartOpacity.value * 28).toString(16).padStart(2, '0'),
+        borderWidth: 2.6,
+        tension: 0.42,
+        pointRadius: months.length > 10 ? 2.2 : 3,
+        pointHoverRadius: 8,
+        pointBackgroundColor: color + opacityHex,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 1.8,
+        fill: false,
+        spanGaps: false,
+      })
+    })
+  })
+
+  if (datasets.length === 0) {
+    error.value = 'No cumulative data available for this pixel'
+    return
+  }
+
+  const yAxisTitle = renderChartLayers.value.length > 1
+    ? unitLabel
+    : `Cumulative ${unitLabel}`
+
+  const chartConfig = {
+    responsive: true,
+    maintainAspectRatio: false,
+    resizeDelay: 80,
+    devicePixelRatio: chartCanvasWidth.value > 7000 ? 1 : Math.min(window.devicePixelRatio || 1, 1.6),
+    interaction: { mode: 'index', intersect: false },
+    animation: {
+      duration: 520,
+      easing: 'easeOutQuart',
+    },
+    transitions: {
+      active: { animation: { duration: 140 } },
+      resize: { animation: { duration: 180 } },
+    },
+    layout: { padding: { top: 8, right: 12, bottom: 6, left: 4 } },
+    plugins: {
+      canvasBackgroundPlugin: { color: canvasBg },
+      legend: {
+        display: datasets.length > 1,
+        position: 'bottom',
+        labels: {
+          color: textColor,
+          font: { size: 12, family: "'Inter','Segoe UI',sans-serif", weight: '600' },
+          boxWidth: 28,
+          padding: 16,
+          usePointStyle: true,
+          pointStyle: 'circle',
+        },
+      },
+      tooltip: {
+        backgroundColor: tooltipBg,
+        titleColor: textColor,
+        bodyColor: textColor,
+        borderColor: tooltipBorder,
+        borderWidth: 1,
+        padding: 12,
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y
+            return v === null
+              ? ` ${ctx.dataset.label}: No data`
+              : ` ${ctx.dataset.label}: ${v.toFixed(3)}`
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { size: 11, family: "'Inter','Segoe UI',sans-serif", weight: '500' },
+        },
+        title: {
+          display: true,
+          text: 'Rabi season months',
+          color: textColor,
+          font: { size: 12, family: "'Inter','Segoe UI',sans-serif", weight: '600' },
+        },
+      },
+      y: {
+        grid: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { size: 11, family: "'Inter','Segoe UI',sans-serif", weight: '500' },
+        },
+        title: {
+          display: true,
+          text: yAxisTitle,
+          color: textColor,
+          font: { size: 12, family: "'Inter','Segoe UI',sans-serif", weight: '600' },
+        },
+      },
+    },
+  }
+
+  mountOrUpdateChart(canvas, labels, datasets, chartConfig)
+}
+
 // ── Watchers & lifecycle ──────────────────────────────────────────────────
 watch(() => props.pixelData, data => {
   destroyChart()
@@ -885,8 +1348,10 @@ watch(() => props.modelLayer, layer => {
   if (!layer && selectedLayer.value) selectedLayer.value = null
 })
 watch(() => props.modelMode, nextMode => {
-  if (nextMode && nextMode !== 'monthly') emit('update:modelMode', 'monthly')
-})
+  if (!nextMode) return
+  const normalized = normalizePixelMode(nextMode)
+  if (normalized !== mode.value) mode.value = normalized
+}, { immediate: true })
 watch(() => props.modelOpacity, nextOpacity => {
   const normalized = clamp(Number(nextOpacity) || 0.9, 0.2, 1)
   if (normalized !== chartOpacity.value) chartOpacity.value = normalized
@@ -904,9 +1369,9 @@ watch(selectedLayer, layer => {
   if (!canRenderChart.value) destroyChart()
   scheduleBuildChart()
 }, { flush: 'post' })
-watch(mode, () => {
-  if (mode.value !== 'monthly') mode.value = 'monthly'
-  emit('update:modelMode', 'monthly')
+watch(mode, nextMode => {
+  emit('update:modelMode', nextMode)
+  if (!canRenderChart.value) destroyChart()
   scheduleBuildChart()
 }, { flush: 'post' })
 watch(chartCanvasWidth, () => { nextTick(scheduleChartLayout) }, { flush: 'post' })
@@ -1025,7 +1490,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.35rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.45rem;
   margin-bottom: 0.4rem;
   min-width: 0;
   flex: 0 0 auto;
@@ -1046,11 +1512,18 @@ onUnmounted(() => {
   max-width: none;
   min-width: 0;
 }
+.season-control,
 .view-control {
   flex: 0 1 240px;
   flex-direction: row;
   align-items: center;
   max-width: min(100%, 280px);
+}
+.mode-control {
+  flex: 1 1 300px;
+  flex-direction: row;
+  align-items: center;
+  max-width: min(100%, 390px);
 }
 .control-group label {
   font-size: 0.62rem;
@@ -1261,8 +1734,15 @@ onUnmounted(() => {
 .toggle-switch,
 .view-badge {
   display: flex;
+  align-items: center;
+  min-width: 0;
   background: rgba(40, 95, 150, 0.1);
   border-radius: 999px;
+}
+.toggle-switch {
+  flex: 1 1 auto;
+  padding: 3px;
+  gap: 2px;
 }
 .view-badge {
   align-items: center;
@@ -1279,14 +1759,17 @@ onUnmounted(() => {
   border: 1px solid rgba(180, 205, 222, 0.1);
 }
 .toggle-option {
+  flex: 1 1 auto;
   height: 32px;
-  padding: 0 0.95rem;
+  min-width: 0;
+  padding: 0 0.7rem;
   border: none;
   background: transparent;
   border-radius: 30px;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 700;
   color: #8899aa;
+  white-space: nowrap;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1529,8 +2012,13 @@ onUnmounted(() => {
   }
   .control-group { width: auto; flex-shrink: 0; }
   .layer-control { max-width: none; }
-  .view-control { width: 100%; max-width: 100%; }
-  .toggle-switch { width: auto; }
+  .season-control,
+  .view-control,
+  .mode-control {
+    width: 100%;
+    max-width: 100%;
+  }
+  .toggle-switch { width: 100%; }
   .toggle-option { flex: 1; }
   .select { min-width: 0; width: 100%; }
   .season-menu {

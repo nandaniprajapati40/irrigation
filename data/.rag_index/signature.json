@@ -1,0 +1,14 @@
+{
+  "digest": "b7399f65373593e08f1ce406d3d47dfe7061d25006844fd498af922175bff960",
+  "files": [
+    {
+      "name": "jaldrishti_knowledge_base.txt",
+      "size": 11428,
+      "mtime": 1779956805
+    }
+  ],
+  "chunk_size": 850,
+  "chunk_overlap": 120,
+  "embedding_model": "nomic-embed-text",
+  "vector_backend": "faiss"
+}

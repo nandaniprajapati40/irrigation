@@ -53,6 +53,10 @@
         </div>
         <h2 class="welcome-title">Hi, I'm AquaBot</h2>
         <p class="welcome-sub">Ask me about irrigation, crop water requirements, SAVI, CWR, IWR, or field conditions.</p>
+        <!-- Show location context if coordinates are provided -->
+        <p v-if="lat && lon" class="welcome-location">
+          📍 Field location: {{ lat.toFixed(4) }}, {{ lon.toFixed(4) }}
+        </p>
         <div class="suggestion-chips">
           <button
             v-for="s in suggestions"
@@ -107,11 +111,7 @@
             <div class="msg-meta">
               <span class="timestamp">{{ formatTime(msg.timestamp) }}</span>
               <div class="msg-actions" v-if="!msg.streaming">
-                <button
-                  class="meta-btn"
-                  title="Copy"
-                  @click="copyMessage(msg)"
-                >
+                <button class="meta-btn" title="Copy" @click="copyMessage(msg)">
                   <svg viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M3 11V3a1 1 0 011-1h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
                   <span class="meta-label">{{ msg.copied ? 'Copied!' : 'Copy' }}</span>
                 </button>
@@ -187,24 +187,38 @@
 <script>
 export default {
   name: 'AquaBotChat',
+
   props: {
+    // Base URL of the FastAPI backend.
+    // In development: http://localhost:8000
+    // In production: set via environment variable or parent prop.
     apiBase: {
       type: String,
-      default: 'http://localhost:8000'
+      // FIX 1: fall back to env variable, then localhost
+      default: () =>
+        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE) ||
+        (typeof process !== 'undefined' && process.env?.VUE_APP_API_BASE) ||
+        'http://localhost:8000'
     },
     sessionId: {
       type: String,
       default: () => `session-${Date.now()}`
     },
+    // Latitude of the currently selected field point (from Leaflet map click).
+    // Pass null when no point is selected.
     lat: {
       type: Number,
       default: null
     },
+    // Longitude of the currently selected field point.
     lon: {
       type: Number,
       default: null
     }
   },
+
+  emits: ['connection-change'],
+
   data() {
     return {
       messages: [],
@@ -214,6 +228,8 @@ export default {
       isConnected: true,
       inputFocused: false,
       currentStream: null,
+      // Abort controller so we can cancel in-flight streams cleanly
+      abortController: null,
       suggestions: [
         'What is the current CWR?',
         'Explain crop water requirements',
@@ -222,6 +238,14 @@ export default {
       ]
     }
   },
+
+  watch: {
+    // FIX 2: emit connection state changes so the parent can react
+    isConnected(val) {
+      this.$emit('connection-change', val)
+    }
+  },
+
   methods: {
     uid() {
       return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -234,7 +258,6 @@ export default {
 
     formatText(text) {
       if (!text) return ''
-      // Basic markdown-lite formatting
       return text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -281,17 +304,25 @@ export default {
         .filter(Boolean)
     },
 
+    // FIX 3: sanitise history — only include complete, non-streaming messages
+    // with valid role and non-empty content. Keeps last 8 turns to stay within
+    // the backend's combined_history slice of 12.
     buildHistory() {
       return this.messages
-        .filter(m => !m.streaming && m.content)
+        .filter(m => !m.streaming && m.content && m.content.trim() && ['user', 'assistant'].includes(m.role))
+        .slice(-8)
         .map(m => ({ role: m.role, content: m.content }))
+    },
+
+    // FIX 4: resolve the API base URL defensively — strip trailing slash
+    resolvedApiBase() {
+      return (this.apiBase || 'http://localhost:8000').replace(/\/$/, '')
     },
 
     async sendMessage() {
       const text = this.userInput.trim()
       if (!text || this.isLoading) return
 
-      // Add user message
       const userMsg = {
         id: this.uid(),
         role: 'user',
@@ -314,6 +345,12 @@ export default {
     },
 
     async callStream(query) {
+      // Cancel any in-flight request before starting a new one
+      if (this.abortController) {
+        this.abortController.abort()
+      }
+      this.abortController = new AbortController()
+
       this.isLoading = true
       this.isTyping = true
 
@@ -331,25 +368,40 @@ export default {
       this.messages.push(botMsg)
       this.currentStream = botMsg.id
 
+      // FIX 5: build payload — only include lat/lon when both are valid numbers
+      const payload = {
+        query,
+        session_id: this.sessionId,
+        history: this.buildHistory()
+      }
+      if (this.lat != null && this.lon != null &&
+          isFinite(this.lat) && isFinite(this.lon)) {
+        payload.lat = this.lat
+        payload.lon = this.lon
+      }
+
       try {
-        const payload = {
-          query,
-          session_id: this.sessionId,
-          history: this.buildHistory(),
-          ...(this.lat != null && { lat: this.lat }),
-          ...(this.lon != null && { lon: this.lon })
+        const response = await fetch(
+          `${this.resolvedApiBase()}/api/chat/stream`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: this.abortController.signal
+          }
+        )
+
+        if (!response.ok) {
+          // FIX 6: surface HTTP errors with status code for easier debugging
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+        if (!response.body) {
+          throw new Error('Streaming response body is not available in this browser')
         }
 
-        const response = await fetch(`${this.apiBase}/api/chat/stream`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        })
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        if (!response.body) throw new Error('Streaming response is not available')
-
         this.isTyping = false
+        this.isConnected = true
+
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -368,17 +420,32 @@ export default {
           this.scrollToBottom(false)
         }
 
+        // Flush any remaining buffer
         buffer += decoder.decode()
         for (const evt of this.parseSseEvents(buffer)) {
           this.handleStreamEvent(botMsg.id, evt)
         }
 
       } catch (err) {
+        if (err.name === 'AbortError') {
+          // Intentional cancel — clean up silently
+          const idx = this.messages.findIndex(m => m.id === botMsg.id)
+          if (idx !== -1) this.messages.splice(idx, 1)
+          return
+        }
+
         console.error('[AquaBot] stream error:', err)
         this.isConnected = false
+
         const idx = this.messages.findIndex(m => m.id === botMsg.id)
         if (idx !== -1) {
-          this.messages[idx].content = 'Sorry, I could not connect to the server. Please check your connection and try again.'
+          // FIX 7: show the actual error message to help diagnose connection issues
+          const userFacingError = err.message.startsWith('HTTP 5')
+            ? 'The server encountered an error. Please try again in a moment.'
+            : err.message.startsWith('HTTP 4')
+            ? 'Request was rejected by the server. Please check your query and try again.'
+            : `Could not connect to the server (${this.resolvedApiBase()}). Please check your connection.`
+          this.messages[idx].content = userFacingError
           this.messages[idx].streaming = false
         }
       } finally {
@@ -387,6 +454,7 @@ export default {
         this.isLoading = false
         this.isTyping = false
         this.currentStream = null
+        this.abortController = null
         this.scrollToBottom()
       }
     },
@@ -405,6 +473,7 @@ export default {
       if (streamEvent.type === 'token') {
         this.messages[idx].content += evt.content || ''
       } else if (streamEvent.type === 'done') {
+        // Only overwrite content from 'done' if streaming produced nothing
         if (!this.messages[idx].content && evt.answer) {
           this.messages[idx].content = evt.answer
         }
@@ -412,7 +481,12 @@ export default {
         this.messages[idx].streaming = false
         this.isConnected = true
       } else if (streamEvent.type === 'meta') {
-        if (evt.sources) this.messages[idx].sources = evt.sources
+        // FIX 8: merge sources from meta event without overwriting existing ones
+        if (evt.sources && evt.sources.length) {
+          const existing = new Set(this.messages[idx].sources || [])
+          evt.sources.forEach(s => existing.add(s))
+          this.messages[idx].sources = Array.from(existing)
+        }
       } else if (streamEvent.type === 'error') {
         this.messages[idx].content = evt.error || 'Sorry, I could not generate an answer right now.'
         this.messages[idx].streaming = false
@@ -457,7 +531,6 @@ export default {
       msg.editing = false
       msg.editText = ''
 
-      // Remove all messages after this user message and resend
       const idx = this.messages.findIndex(m => m.id === msg.id)
       if (idx !== -1) {
         this.messages.splice(idx + 1)
@@ -471,10 +544,15 @@ export default {
     },
 
     clearChat() {
+      // Cancel any running stream before clearing
+      if (this.abortController) {
+        this.abortController.abort()
+      }
       this.messages = []
       this.isLoading = false
       this.isTyping = false
       this.currentStream = null
+      this.abortController = null
     }
   },
 
@@ -482,6 +560,13 @@ export default {
     this.$nextTick(() => {
       if (this.$refs.inputRef) this.$refs.inputRef.focus()
     })
+  },
+
+  beforeUnmount() {
+    // FIX 9: abort any in-flight request when component is destroyed
+    if (this.abortController) {
+      this.abortController.abort()
+    }
   }
 }
 </script>
@@ -572,8 +657,12 @@ export default {
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   margin: 0 0 8px;
 }
-.welcome-sub { color: var(--text-2); font-size: 14px; max-width: 320px; line-height: 1.6; margin: 0 0 20px; }
-.suggestion-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.welcome-sub { color: var(--text-2); font-size: 14px; max-width: 320px; line-height: 1.6; margin: 0 0 8px; }
+.welcome-location {
+  font-size: 12px; color: var(--text-3); margin: 0 0 16px;
+  background: var(--blue-3); padding: 4px 12px; border-radius: 20px;
+}
+.suggestion-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
 .chip {
   padding: 7px 14px; border: 1.5px solid var(--blue-1);
   background: transparent; color: var(--blue-1);
@@ -584,9 +673,7 @@ export default {
 
 /* Message rows */
 .message-list { display: flex; flex-direction: column; gap: 16px; }
-.message-row {
-  display: flex; align-items: flex-start; gap: 10px;
-}
+.message-row { display: flex; align-items: flex-start; gap: 10px; }
 .message-row.user { flex-direction: row-reverse; }
 .msg-avatar { width: 28px; height: 28px; flex-shrink: 0; margin-top: 2px; }
 .msg-avatar svg { width: 100%; height: 100%; }
@@ -653,10 +740,7 @@ export default {
 }
 
 /* Meta + Actions */
-.msg-meta {
-  display: flex; align-items: center; gap: 10px;
-  padding: 0 2px;
-}
+.msg-meta { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
 .timestamp { font-size: 11px; color: var(--text-3); }
 .msg-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .2s; }
 .message-row:hover .msg-actions { opacity: 1; }

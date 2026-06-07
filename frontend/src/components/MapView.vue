@@ -206,7 +206,7 @@
     </Transition>
 
     <!-- Weather Panel -->
-    <Transition name="map-widget" appear>
+    <!-- <Transition name="map-widget" appear>
       <div
         class="weather-panel"
         v-if="weatherVisible"
@@ -265,7 +265,7 @@
         </p>
         </div>
       </div>
-    </Transition>
+    </Transition> -->
     <!-- ── Floating Pixel Trend Widget ─────────────────────────────────── -->
     <Transition name="pixel-widget-fade" appear>
       <aside
@@ -407,7 +407,7 @@ const pixelTimeSeriesLoading  = ref(false)
 const pixelTimeSeriesError    = ref(null)
 const selectedPixelLocation   = ref(null)
 const pixelWidgetLayer        = ref(null)
-const pixelWidgetMode         = ref('cumulative')
+const pixelWidgetMode         = ref('date')
 const pixelWidgetMaximized    = ref(false)
 const pixelWidgetDragging     = ref(false)
 const pixelWidgetResizing     = ref(false)
@@ -856,7 +856,7 @@ function preparePixelWidgetLoading(lat, lon) {
   ensurePixelWidgetFrame()
   selectedPixelLocation.value = { lat: Number(lat), lon: Number(lon) }
   pixelWidgetLayer.value = props.selectedLayer || activeLayers.value[0]?.name || null
-  pixelWidgetMode.value = 'cumulative'
+  pixelWidgetMode.value = 'date'
   showPixelWidget.value = true
   bringWidgetToFront('pixel')
   pixelWidgetMinimized.value = false
@@ -891,7 +891,7 @@ async function fetchPixelTimeSeries(lat, lon, { pixelId = null } = {}) {
  
   try {
     pixelWidgetLayer.value = props.selectedLayer || activeLayers.value[0]?.name || null
-    pixelWidgetMode.value = 'cumulative'
+    pixelWidgetMode.value = 'date'
 
     const params = new URLSearchParams({
       lat: String(lat),

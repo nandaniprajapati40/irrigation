@@ -80,6 +80,42 @@
       </div>
     </div>
 
+    <!-- ══════════════ AQUABOT CHAT SECTION ══════════════ -->
+    <!--
+      FIX: AquaBotChat is now rendered in the template.
+      - apiBase reads from the VITE_API_BASE env var, then falls back to localhost:8000.
+      - lat/lon are passed from mapLat/mapLon state — these should be updated
+        whenever the user clicks a point on your Leaflet map. Connect them via
+        an event emitted from your map component, e.g.:
+          @map-click="handleMapClick"
+        where handleMapClick sets mapLat and mapLon.
+      - sessionId is stable per page visit.
+      - @connection-change lets you show a global offline banner if needed.
+    -->
+    <div class="aquabot-section">
+      <div class="aquabot-section-header">
+        <h2 class="aquabot-section-title">Still have questions?</h2>
+        <p class="aquabot-section-sub">
+          Chat with AquaBot — our AI assistant for irrigation, crop water needs, and field conditions.
+        </p>
+        <!-- Optional: show offline warning when backend is unreachable -->
+        <div v-if="!chatConnected" class="offline-banner">
+          ⚠️ AquaBot is currently offline. Make sure the backend server is running at
+          <code>{{ apiBase }}</code>
+        </div>
+      </div>
+
+      <div class="aquabot-wrapper">
+        <AquaBotChat
+          :api-base="apiBase"
+          :session-id="chatSessionId"
+          :lat="mapLat"
+          :lon="mapLon"
+          @connection-change="handleConnectionChange"
+        />
+      </div>
+    </div>
+
     <!-- ══════════════ FOOTER ══════════════ -->
     <footer class="site-footer">
       <div class="footer-inner">
@@ -100,12 +136,44 @@ import AquaBotChat from './AquaBotChat.vue'
 defineProps({ isDark: { type: Boolean, default: false } })
 defineEmits(['home', 'docs', 'faqs', 'launch'])
 
+// ── FAQ state ────────────────────────────────────────────────────────────────
 const query      = ref('')
 const openIndex  = ref(null)
 
 function toggle(i) {
   openIndex.value = openIndex.value === i ? null : i
 }
+
+// ── AquaBot connection ───────────────────────────────────────────────────────
+// FIX: Read API base from Vite env, fall back to localhost.
+// Set VITE_API_BASE=http://your-server:8000 in your .env file.
+const apiBase = import.meta.env?.VITE_API_BASE || 'http://localhost:8000'
+
+// Stable session ID for this page visit
+const chatSessionId = `faq-session-${Date.now()}`
+
+// Whether the backend is reachable (updated by AquaBotChat via @connection-change)
+const chatConnected = ref(true)
+
+// Map coordinates — update these when the user clicks on your Leaflet map.
+// If this page doesn't embed a map, leave them as null; AquaBot will still
+// work without raster point lookups.
+// Example wiring from a parent component:
+//   const mapLat = ref(null)
+//   const mapLon = ref(null)
+//   function handleMapClick({ lat, lon }) { mapLat.value = lat; mapLon.value = lon }
+const mapLat = ref(null)
+const mapLon = ref(null)
+
+function handleConnectionChange(connected) {
+  chatConnected.value = connected
+}
+
+// ── If you receive map clicks from a Leaflet component via events, wire it here:
+// Example: your parent passes selectedLat / selectedLon as props and you relay them:
+//   const props = defineProps({ selectedLat: Number, selectedLon: Number })
+//   const mapLat = computed(() => props.selectedLat ?? null)
+//   const mapLon = computed(() => props.selectedLon ?? null)
 
 // ── FAQ DATA (plain language) ────────────────────────────────────────────────
 const faqs = [
@@ -447,7 +515,7 @@ function highlight(text) {
 /* ── FAQ LIST ─────────────────────────────────────────────────────────────── */
 .faq-list-wrap {
   max-width: 820px;
-  margin: 48px auto 64px;
+  margin: 48px auto 0;
   padding: 0 24px;
 }
 
@@ -538,17 +606,56 @@ function highlight(text) {
   padding: 0 2px;
 }
 
-/* Footer note */
-.faq-footer-note {
+/* ── AQUABOT SECTION ──────────────────────────────────────────────────────── */
+.aquabot-section {
+  max-width: 820px;
+  margin: 48px auto 64px;
+  padding: 0 24px;
+}
+
+.aquabot-section-header {
   text-align: center;
-  padding: 28px 24px;
-  background: #f0fdf9;
-  border: 1px dashed #99d6cf;
-  border-radius: 14px;
-  margin-top: 40px;
+  margin-bottom: 24px;
+}
+
+.aquabot-section-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.aquabot-section-sub {
   font-size: 0.97rem;
-  color: #334155;
+  color: #475569;
   line-height: 1.6;
+}
+
+.offline-banner {
+  margin-top: 12px;
+  padding: 10px 18px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  color: #92400e;
+  display: inline-block;
+}
+.offline-banner code {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  background: #ffedd5;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* Chat widget wrapper — gives it a fixed height so it doesn't collapse */
+.aquabot-wrapper {
+  height: 560px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.10);
 }
 
 /* ── SITE FOOTER ──────────────────────────────────────────────────────────── */
@@ -587,5 +694,7 @@ function highlight(text) {
   .faq-question { padding: 16px; }
   .faq-answer { padding: 14px 16px 18px; }
   .nav-link { padding: 8px 12px; font-size: 0.82rem; }
+  .aquabot-section { padding: 0 12px; }
+  .aquabot-wrapper { height: 480px; }
 }
 </style>
