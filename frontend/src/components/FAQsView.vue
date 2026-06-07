@@ -40,7 +40,6 @@
         No technical background needed — just plain, clear explanations.
       </p>
 
-      <!-- Search bar -->
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
         <input
@@ -80,42 +79,6 @@
       </div>
     </div>
 
-    <!-- ══════════════ AQUABOT CHAT SECTION ══════════════ -->
-    <!--
-      FIX: AquaBotChat is now rendered in the template.
-      - apiBase reads from the VITE_API_BASE env var, then falls back to localhost:8000.
-      - lat/lon are passed from mapLat/mapLon state — these should be updated
-        whenever the user clicks a point on your Leaflet map. Connect them via
-        an event emitted from your map component, e.g.:
-          @map-click="handleMapClick"
-        where handleMapClick sets mapLat and mapLon.
-      - sessionId is stable per page visit.
-      - @connection-change lets you show a global offline banner if needed.
-    -->
-    <div class="aquabot-section">
-      <div class="aquabot-section-header">
-        <h2 class="aquabot-section-title">Still have questions?</h2>
-        <p class="aquabot-section-sub">
-          Chat with AquaBot — our AI assistant for irrigation, crop water needs, and field conditions.
-        </p>
-        <!-- Optional: show offline warning when backend is unreachable -->
-        <div v-if="!chatConnected" class="offline-banner">
-          ⚠️ AquaBot is currently offline. Make sure the backend server is running at
-          <code>{{ apiBase }}</code>
-        </div>
-      </div>
-
-      <div class="aquabot-wrapper">
-        <AquaBotChat
-          :api-base="apiBase"
-          :session-id="chatSessionId"
-          :lat="mapLat"
-          :lon="mapLon"
-          @connection-change="handleConnectionChange"
-        />
-      </div>
-    </div>
-
     <!-- ══════════════ FOOTER ══════════════ -->
     <footer class="site-footer">
       <div class="footer-inner">
@@ -126,6 +89,56 @@
         <p class="fb-sub">Udham Singh Nagar · Uttarakhand · Rabi Wheat</p>
       </div>
     </footer>
+
+    <!-- ══════════════ FLOATING AQUABOT BUTTON ══════════════ -->
+    <button
+      class="fab-aquabot"
+      @click="chatOpen = !chatOpen"
+      :aria-label="chatOpen ? 'Close AquaBot' : 'Open AquaBot'"
+    >
+      <svg v-if="!chatOpen" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+        <circle cx="18" cy="18" r="18" fill="white" fill-opacity="0.15"/>
+        <path d="M10 22 Q14 10 18 14 Q22 18 26 12" stroke="#fff" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+        <circle cx="13" cy="20" r="1.8" fill="#fff" opacity=".9"/>
+        <circle cx="23" cy="17" r="1.8" fill="#fff" opacity=".9"/>
+        <path d="M14 27 Q18 30 22 27" stroke="#fff" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+      </svg>
+      <svg v-else viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+        <path d="M18 6L6 18M6 6l12 12" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+      <span class="fab-label">{{ chatOpen ? 'Close' : 'AquaBot' }}</span>
+    </button>
+
+    <!-- ══════════════ SLIDING CHAT PANEL ══════════════ -->
+    <Transition name="slide-up">
+      <div v-if="chatOpen" class="fab-chat-panel">
+        <div class="fab-chat-header">
+          <div class="fab-chat-header-left">
+            <svg viewBox="0 0 28 28" fill="none" width="22" height="22">
+              <circle cx="14" cy="14" r="14" fill="rgba(255,255,255,0.2)"/>
+              <path d="M8 17 Q11 8 14 11 Q17 14 20 9" stroke="#fff" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+              <circle cx="10" cy="16" r="1.4" fill="#fff"/>
+              <circle cx="18" cy="13" r="1.4" fill="#fff"/>
+            </svg>
+            <span>AquaBot — Irrigation Assistant</span>
+          </div>
+          <button class="fab-close-btn" @click="chatOpen = false" aria-label="Close AquaBot chat">
+            <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+              <path d="M12 4L4 12M4 4l8 8" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="fab-chat-body">
+          <AquaBotChat
+            :api-base="apiBase"
+            :session-id="fabChatSessionId"
+            :lat="mapLat"
+            :lon="mapLon"
+            @connection-change="handleConnectionChange"
+          />
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -137,45 +150,31 @@ defineProps({ isDark: { type: Boolean, default: false } })
 defineEmits(['home', 'docs', 'faqs', 'launch'])
 
 // ── FAQ state ────────────────────────────────────────────────────────────────
-const query      = ref('')
-const openIndex  = ref(null)
+const query     = ref('')
+const openIndex = ref(null)
 
 function toggle(i) {
   openIndex.value = openIndex.value === i ? null : i
 }
 
-// ── AquaBot connection ───────────────────────────────────────────────────────
-// FIX: Read API base from Vite env, fall back to localhost.
-// Set VITE_API_BASE=http://your-server:8000 in your .env file.
-const apiBase = import.meta.env?.VITE_API_BASE || 'http://localhost:8000'
+// ── AquaBot FAB state ────────────────────────────────────────────────────────
+const chatOpen       = ref(false)
+const fabChatSessionId = `fab-session-${Date.now()}`
 
-// Stable session ID for this page visit
-const chatSessionId = `faq-session-${Date.now()}`
+// ── API base — empty string = same origin, nginx proxies /api/* → backend:8000
+const apiBase = (
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE) || ''
+)
 
-// Whether the backend is reachable (updated by AquaBotChat via @connection-change)
 const chatConnected = ref(true)
-
-// Map coordinates — update these when the user clicks on your Leaflet map.
-// If this page doesn't embed a map, leave them as null; AquaBot will still
-// work without raster point lookups.
-// Example wiring from a parent component:
-//   const mapLat = ref(null)
-//   const mapLon = ref(null)
-//   function handleMapClick({ lat, lon }) { mapLat.value = lat; mapLon.value = lon }
-const mapLat = ref(null)
-const mapLon = ref(null)
+const mapLat        = ref(null)
+const mapLon        = ref(null)
 
 function handleConnectionChange(connected) {
   chatConnected.value = connected
 }
 
-// ── If you receive map clicks from a Leaflet component via events, wire it here:
-// Example: your parent passes selectedLat / selectedLon as props and you relay them:
-//   const props = defineProps({ selectedLat: Number, selectedLon: Number })
-//   const mapLat = computed(() => props.selectedLat ?? null)
-//   const mapLon = computed(() => props.selectedLon ?? null)
-
-// ── FAQ DATA (plain language) ────────────────────────────────────────────────
+// ── FAQ DATA ─────────────────────────────────────────────────────────────────
 const faqs = [
   {
     q: 'What is jaldrishiti?',
@@ -270,7 +269,7 @@ const faqs = [
   }
 ]
 
-// ── Filtered list based on search query ─────────────────────────────────────
+// ── Filtered list ─────────────────────────────────────────────────────────────
 const filtered = computed(() => {
   if (!query.value.trim()) return faqs
   const q = query.value.toLowerCase()
@@ -279,7 +278,7 @@ const filtered = computed(() => {
   )
 })
 
-// ── Highlight matching keyword in text ──────────────────────────────────────
+// ── Highlight matching keyword ────────────────────────────────────────────────
 function highlight(text) {
   if (!query.value.trim()) return text
   const escaped = query.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -291,7 +290,6 @@ function highlight(text) {
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
 
-/* ── RESET & BASE ─────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 .faq-root {
@@ -305,15 +303,14 @@ function highlight(text) {
   min-height: 100vh;
 }
 
-/* ── HEADER ───────────────────────────────────────────────────────────────── */
+/* ── HEADER ── */
 .app-header {
   position: relative;
   z-index: 201;
   background: var(--header-bg);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+  border-bottom: 1px solid rgba(0,0,0,0.18);
   padding: 14px 24px;
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.25);
-  transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+  box-shadow: 0 3px 14px rgba(0,0,0,0.25);
 }
 .app-header-inner {
   max-width: 1280px;
@@ -333,10 +330,10 @@ function highlight(text) {
   height: 64px;
   width: auto;
   object-fit: contain;
-  transition: transform 0.3s ease, filter 0.3s ease;
+  transition: transform 0.3s ease;
 }
 .iirs-logo:hover, .gov-logo:hover { transform: scale(1.05); }
-.gov-logo  { height: 60px; }
+.gov-logo { height: 60px; }
 .header-center { flex: 1; text-align: center; padding: 0 8px; }
 .header-center h2 {
   font-family: 'Outfit', sans-serif;
@@ -361,15 +358,14 @@ function highlight(text) {
   margin: 0;
 }
 
-/* ── NAV ──────────────────────────────────────────────────────────────────── */
+/* ── NAV ── */
 .nav-bar {
   position: sticky;
   top: 0;
   z-index: 200;
   background: var(--nav-bg);
-  border-bottom: 2px solid rgba(0, 0, 0, 0.15);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.20);
-  transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+  border-bottom: 2px solid rgba(0,0,0,0.15);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.20);
 }
 .nav-inner {
   max-width: 1280px;
@@ -412,13 +408,10 @@ function highlight(text) {
   transform: translateX(-50%);
   border-radius: 2px;
 }
-.nav-link:hover, .nav-link.active {
-  background: rgba(255,255,255,0.18);
-  color: #ffffff;
-}
+.nav-link:hover, .nav-link.active { background: rgba(255,255,255,0.18); color: #ffffff; }
 .nav-link:hover::after, .nav-link.active::after { width: 70%; }
 
-/* ── HERO / SEARCH ────────────────────────────────────────────────────────── */
+/* ── HERO / SEARCH ── */
 .faq-hero {
   background: linear-gradient(160deg, #f0fdf9 0%, #e6f4f1 100%);
   border-bottom: 1px solid #d1e9e4;
@@ -448,8 +441,6 @@ function highlight(text) {
   max-width: 560px;
   margin: 0 auto 36px;
 }
-
-/* Search bar */
 .search-wrap {
   position: relative;
   max-width: 620px;
@@ -499,26 +490,15 @@ function highlight(text) {
   transition: background 0.2s;
 }
 .search-clear:hover { background: #cbd5e1; }
+.no-results { margin-top: 20px; color: #64748b; font-size: 0.95rem; }
+.result-count { margin-top: 16px; color: #0d9488; font-size: 0.9rem; font-weight: 500; }
 
-.no-results {
-  margin-top: 20px;
-  color: #64748b;
-  font-size: 0.95rem;
-}
-.result-count {
-  margin-top: 16px;
-  color: #0d9488;
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-/* ── FAQ LIST ─────────────────────────────────────────────────────────────── */
+/* ── FAQ LIST ── */
 .faq-list-wrap {
   max-width: 820px;
-  margin: 48px auto 0;
+  margin: 48px auto 80px;
   padding: 0 24px;
 }
-
 .faq-card {
   border: 1px solid #e2e8f0;
   border-radius: 14px;
@@ -528,15 +508,8 @@ function highlight(text) {
   box-shadow: 0 1px 4px rgba(0,0,0,0.04);
   transition: box-shadow 0.25s, border-color 0.25s;
 }
-.faq-card:hover {
-  box-shadow: 0 4px 18px rgba(0,0,0,0.09);
-  border-color: #b2d8d4;
-}
-.faq-card.open {
-  border-color: #0d9488;
-  box-shadow: 0 4px 20px rgba(13,148,136,0.12);
-}
-
+.faq-card:hover { box-shadow: 0 4px 18px rgba(0,0,0,0.09); border-color: #b2d8d4; }
+.faq-card.open { border-color: #0d9488; box-shadow: 0 4px 20px rgba(13,148,136,0.12); }
 .faq-question {
   width: 100%;
   display: flex;
@@ -550,33 +523,12 @@ function highlight(text) {
   text-align: left;
   font-family: 'Inter', sans-serif;
 }
-.faq-q-text {
-  font-size: 1.02rem;
-  font-weight: 600;
-  color: #0f172a;
-  line-height: 1.5;
-  flex: 1;
-}
+.faq-q-text { font-size: 1.02rem; font-weight: 600; color: #0f172a; line-height: 1.5; flex: 1; }
 .faq-card.open .faq-q-text { color: #0d9488; }
-
-.faq-chevron {
-  font-size: 1.4rem;
-  font-weight: 300;
-  color: #94a3b8;
-  line-height: 1;
-  flex-shrink: 0;
-  transition: color 0.2s;
-}
+.faq-chevron { font-size: 1.4rem; font-weight: 300; color: #94a3b8; line-height: 1; flex-shrink: 0; transition: color 0.2s; }
 .faq-card.open .faq-chevron { color: #0d9488; }
-
-/* Answer */
-.faq-answer-wrap {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.35s ease;
-}
+.faq-answer-wrap { max-height: 0; overflow: hidden; transition: max-height 0.35s ease; }
 .faq-answer-wrap.visible { max-height: 600px; }
-
 .faq-answer {
   padding: 0 24px 22px 24px;
   font-size: 0.97rem;
@@ -597,73 +549,10 @@ function highlight(text) {
   margin: 8px 0;
 }
 .faq-answer strong { color: #0f172a; }
+:deep(mark) { background: #fef08a; color: #1a1a2e; border-radius: 3px; padding: 0 2px; }
 
-/* Highlight mark */
-:deep(mark) {
-  background: #fef08a;
-  color: #1a1a2e;
-  border-radius: 3px;
-  padding: 0 2px;
-}
-
-/* ── AQUABOT SECTION ──────────────────────────────────────────────────────── */
-.aquabot-section {
-  max-width: 820px;
-  margin: 48px auto 64px;
-  padding: 0 24px;
-}
-
-.aquabot-section-header {
-  text-align: center;
-  margin-bottom: 24px;
-}
-
-.aquabot-section-title {
-  font-family: 'Outfit', sans-serif;
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: #0f172a;
-  margin-bottom: 8px;
-}
-
-.aquabot-section-sub {
-  font-size: 0.97rem;
-  color: #475569;
-  line-height: 1.6;
-}
-
-.offline-banner {
-  margin-top: 12px;
-  padding: 10px 18px;
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
-  border-radius: 10px;
-  font-size: 0.88rem;
-  color: #92400e;
-  display: inline-block;
-}
-.offline-banner code {
-  font-family: 'Courier New', monospace;
-  font-size: 0.85rem;
-  background: #ffedd5;
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-
-/* Chat widget wrapper — gives it a fixed height so it doesn't collapse */
-.aquabot-wrapper {
-  height: 560px;
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.10);
-}
-
-/* ── SITE FOOTER ──────────────────────────────────────────────────────────── */
-.site-footer {
-  background: #0f172a;
-  border-top: 1px solid #1e293b;
-  padding: 28px 24px;
-}
+/* ── SITE FOOTER ── */
+.site-footer { background: #0f172a; border-top: 1px solid #1e293b; padding: 28px 24px; }
 .footer-inner {
   max-width: 1100px;
   margin: 0 auto;
@@ -673,19 +562,99 @@ function highlight(text) {
   justify-content: space-between;
   gap: 12px;
 }
-.fb-name {
-  font-family: 'Outfit', sans-serif;
-  font-size: 1rem;
-  font-weight: 700;
-  color: #f8fafc;
-  margin-bottom: 4px;
+.fb-name { font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 700; color: #f8fafc; margin-bottom: 4px; }
+.fb-sub { font-size: 0.82rem; color: #64748b; }
+
+/* ── FLOATING AQUABOT BUTTON ── */
+.fab-aquabot {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 20px 13px 16px;
+  background: linear-gradient(135deg, #1a6bff 0%, #0052cc 100%);
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(26,107,255,0.45);
+  color: #fff;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: transform 0.2s, box-shadow 0.2s;
 }
-.fb-sub {
-  font-size: 0.82rem;
-  color: #64748b;
+.fab-aquabot:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(26,107,255,0.55);
+}
+.fab-aquabot:active { transform: translateY(0); }
+.fab-label { white-space: nowrap; }
+
+/* ── SLIDING CHAT PANEL ── */
+.fab-chat-panel {
+  position: fixed;
+  bottom: 88px;
+  right: 28px;
+  z-index: 999;
+  width: 420px;
+  height: 580px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 16px 56px rgba(0,0,0,0.18);
+  background: #f4f7fb;
+}
+.fab-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  background: linear-gradient(135deg, #1a6bff 0%, #0052cc 100%);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  flex-shrink: 0;
+}
+.fab-chat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.fab-close-btn {
+  background: rgba(255,255,255,0.18);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.fab-close-btn:hover { background: rgba(255,255,255,0.32); }
+.fab-chat-body { flex: 1; overflow: hidden; }
+
+/* ── SLIDE-UP TRANSITION ── */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: opacity 0.25s ease, transform 0.28s ease;
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(20px) scale(0.97);
 }
 
-/* ── RESPONSIVE ───────────────────────────────────────────────────────────── */
+/* ── RESPONSIVE ── */
 @media (max-width: 640px) {
   .app-header-inner { grid-template-columns: 1fr; text-align: center; }
   .header-logos, .header-logos-right { justify-content: center; }
@@ -694,7 +663,17 @@ function highlight(text) {
   .faq-question { padding: 16px; }
   .faq-answer { padding: 14px 16px 18px; }
   .nav-link { padding: 8px 12px; font-size: 0.82rem; }
-  .aquabot-section { padding: 0 12px; }
-  .aquabot-wrapper { height: 480px; }
+  .fab-chat-panel {
+    width: calc(100vw - 16px);
+    right: 8px;
+    bottom: 80px;
+    height: 72vh;
+    border-radius: 14px;
+  }
+  .fab-aquabot {
+    right: 16px;
+    bottom: 16px;
+    padding: 12px 16px 12px 14px;
+  }
 }
 </style>

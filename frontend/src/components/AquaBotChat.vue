@@ -53,7 +53,6 @@
         </div>
         <h2 class="welcome-title">Hi, I'm AquaBot</h2>
         <p class="welcome-sub">Ask me about irrigation, crop water requirements, SAVI, CWR, IWR, or field conditions.</p>
-        <!-- Show location context if coordinates are provided -->
         <p v-if="lat && lon" class="welcome-location">
           📍 Field location: {{ lat.toFixed(4) }}, {{ lon.toFixed(4) }}
         </p>
@@ -79,7 +78,6 @@
           </div>
           <div class="message-content-wrap">
             <div :class="['bubble', msg.role, { streaming: msg.streaming, editing: msg.editing }]">
-              <!-- Edit mode -->
               <template v-if="msg.editing">
                 <textarea
                   v-model="msg.editText"
@@ -94,7 +92,6 @@
                   <button class="edit-btn cancel" @click="cancelEdit(msg)">Cancel</button>
                 </div>
               </template>
-              <!-- Normal mode -->
               <template v-else>
                 <div class="bubble-text" v-html="formatText(msg.content)"></div>
                 <span v-if="msg.streaming" class="cursor-blink">▌</span>
@@ -189,28 +186,33 @@ export default {
   name: 'AquaBotChat',
 
   props: {
-    // Base URL of the FastAPI backend.
-    // In development: http://localhost:8000
-    // In production: set via environment variable or parent prop.
+    //
+    // KEY FIX: Default is now '' (empty string = same origin).
+    //
+    // In Docker the stack is:
+    //   browser → nginx:80 → (proxies /api/*) → backend:8000
+    //
+    // Using '' means fetch('/api/chat/stream') hits nginx on whatever
+    // host/port the user is on — localhost, a dev tunnel, or production —
+    // and nginx forwards it internally to the backend container.
+    //
+    // No VITE_API_BASE env var is needed unless you want to point at a
+    // completely different host (e.g. a remote staging backend).
+    //
     apiBase: {
       type: String,
-      // FIX 1: fall back to env variable, then localhost
       default: () =>
         (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE) ||
-        (typeof process !== 'undefined' && process.env?.VUE_APP_API_BASE) ||
-        'http://localhost:8000'
+        ''   // ← same-origin; nginx proxy handles /api/* → backend:8000
     },
     sessionId: {
       type: String,
       default: () => `session-${Date.now()}`
     },
-    // Latitude of the currently selected field point (from Leaflet map click).
-    // Pass null when no point is selected.
     lat: {
       type: Number,
       default: null
     },
-    // Longitude of the currently selected field point.
     lon: {
       type: Number,
       default: null
@@ -228,7 +230,6 @@ export default {
       isConnected: true,
       inputFocused: false,
       currentStream: null,
-      // Abort controller so we can cancel in-flight streams cleanly
       abortController: null,
       suggestions: [
         'What is the current CWR?',
@@ -240,7 +241,6 @@ export default {
   },
 
   watch: {
-    // FIX 2: emit connection state changes so the parent can react
     isConnected(val) {
       this.$emit('connection-change', val)
     }
@@ -304,9 +304,6 @@ export default {
         .filter(Boolean)
     },
 
-    // FIX 3: sanitise history — only include complete, non-streaming messages
-    // with valid role and non-empty content. Keeps last 8 turns to stay within
-    // the backend's combined_history slice of 12.
     buildHistory() {
       return this.messages
         .filter(m => !m.streaming && m.content && m.content.trim() && ['user', 'assistant'].includes(m.role))
@@ -314,9 +311,11 @@ export default {
         .map(m => ({ role: m.role, content: m.content }))
     },
 
-    // FIX 4: resolve the API base URL defensively — strip trailing slash
+    // Resolves the base URL for API calls.
+    // '' (empty string) means same-origin — nginx on port 80 proxies /api/* to backend:8000.
+    // A non-empty apiBase prop overrides this (e.g. for pointing at a remote host).
     resolvedApiBase() {
-      return (this.apiBase || 'http://localhost:8000').replace(/\/$/, '')
+      return (this.apiBase || '').replace(/\/$/, '')
     },
 
     async sendMessage() {
@@ -345,7 +344,6 @@ export default {
     },
 
     async callStream(query) {
-      // Cancel any in-flight request before starting a new one
       if (this.abortController) {
         this.abortController.abort()
       }
@@ -368,7 +366,6 @@ export default {
       this.messages.push(botMsg)
       this.currentStream = botMsg.id
 
-      // FIX 5: build payload — only include lat/lon when both are valid numbers
       const payload = {
         query,
         session_id: this.sessionId,
@@ -392,7 +389,6 @@ export default {
         )
 
         if (!response.ok) {
-          // FIX 6: surface HTTP errors with status code for easier debugging
           throw new Error(`HTTP ${response.status}: ${response.statusText}`)
         }
         if (!response.body) {
@@ -420,7 +416,6 @@ export default {
           this.scrollToBottom(false)
         }
 
-        // Flush any remaining buffer
         buffer += decoder.decode()
         for (const evt of this.parseSseEvents(buffer)) {
           this.handleStreamEvent(botMsg.id, evt)
@@ -428,7 +423,6 @@ export default {
 
       } catch (err) {
         if (err.name === 'AbortError') {
-          // Intentional cancel — clean up silently
           const idx = this.messages.findIndex(m => m.id === botMsg.id)
           if (idx !== -1) this.messages.splice(idx, 1)
           return
@@ -439,12 +433,11 @@ export default {
 
         const idx = this.messages.findIndex(m => m.id === botMsg.id)
         if (idx !== -1) {
-          // FIX 7: show the actual error message to help diagnose connection issues
           const userFacingError = err.message.startsWith('HTTP 5')
             ? 'The server encountered an error. Please try again in a moment.'
             : err.message.startsWith('HTTP 4')
             ? 'Request was rejected by the server. Please check your query and try again.'
-            : `Could not connect to the server (${this.resolvedApiBase()}). Please check your connection.`
+            : 'Could not reach the server. Please check your connection and try again.'
           this.messages[idx].content = userFacingError
           this.messages[idx].streaming = false
         }
@@ -473,7 +466,6 @@ export default {
       if (streamEvent.type === 'token') {
         this.messages[idx].content += evt.content || ''
       } else if (streamEvent.type === 'done') {
-        // Only overwrite content from 'done' if streaming produced nothing
         if (!this.messages[idx].content && evt.answer) {
           this.messages[idx].content = evt.answer
         }
@@ -481,7 +473,6 @@ export default {
         this.messages[idx].streaming = false
         this.isConnected = true
       } else if (streamEvent.type === 'meta') {
-        // FIX 8: merge sources from meta event without overwriting existing ones
         if (evt.sources && evt.sources.length) {
           const existing = new Set(this.messages[idx].sources || [])
           evt.sources.forEach(s => existing.add(s))
@@ -544,7 +535,6 @@ export default {
     },
 
     clearChat() {
-      // Cancel any running stream before clearing
       if (this.abortController) {
         this.abortController.abort()
       }
@@ -563,7 +553,6 @@ export default {
   },
 
   beforeUnmount() {
-    // FIX 9: abort any in-flight request when component is destroyed
     if (this.abortController) {
       this.abortController.abort()
     }
