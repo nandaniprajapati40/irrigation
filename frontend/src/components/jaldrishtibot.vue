@@ -8,18 +8,14 @@
       <!-- Welcome -->
       <div v-if="messages.length === 0" class="welcome-screen">
         <div class="welcome-icon">
-          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="32" cy="32" r="30" fill="url(#wGrad)" opacity=".15"/>
-            <path d="M18 38 Q24 18 32 24 Q40 30 46 18" stroke="url(#wGrad)" stroke-width="3" stroke-linecap="round" fill="none"/>
-            <circle cx="22" cy="35" r="3" fill="url(#wGrad)"/>
-            <circle cx="42" cy="28" r="3" fill="url(#wGrad)"/>
-            <defs>
-              <linearGradient id="wGrad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#1a6bff"/>
-                <stop offset="1" stop-color="#00c6ff"/>
-              </linearGradient>
-            </defs>
-          </svg>
+          <div class="welcome-icon">
+            <img
+                src="/assets/logo.png"
+                alt="Logo"
+                class="iirs-logo"
+                onerror="this.style.display='none'"
+            />
+          </div>
         </div>
         <h2 class="welcome-title">Hi, I'm JalDrishtiBot</h2>
         <p class="welcome-sub">Ask me about irrigation, crop water requirements, SAVI, CWR, IWR, or field conditions.</p>
@@ -614,6 +610,11 @@ export default {
   background: linear-gradient(135deg, var(--blue-1), var(--blue-2));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   margin: 0 0 8px;
+}
+.iirs-logo {
+    width: 64px;   /* adjust as needed */
+    height: 64px;  /* adjust as needed */
+    object-fit: contain;
 }
 .welcome-sub { color: var(--text-2); font-size: 14px; max-width: 320px; line-height: 1.6; margin: 0 0 8px; }
 .welcome-location {

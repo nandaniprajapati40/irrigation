@@ -1,0 +1,11 @@
+2026-06-08 08:48:02  INFO      logging_config — Logging initialised.
+2026-06-08 08:48:02  DEBUG     asyncio — Using selector: EpollSelector
+2026-06-08 08:51:15  INFO      logging_config — Logging initialised.
+2026-06-08 08:51:15  DEBUG     asyncio — Using selector: EpollSelector
+2026-06-08 08:51:19  WARNING   main — No savi files in /app/data/processed/savi
+2026-06-08 08:56:16  INFO      logging_config — Logging initialised.
+2026-06-08 08:56:16  DEBUG     asyncio — Using selector: EpollSelector
+2026-06-08 09:04:02  INFO      logging_config — Logging initialised.
+2026-06-08 09:04:02  DEBUG     asyncio — Using selector: EpollSelector
+2026-06-08 09:09:48  INFO      logging_config — Logging initialised.
+2026-06-08 09:09:49  DEBUG     asyncio — Using selector: EpollSelector

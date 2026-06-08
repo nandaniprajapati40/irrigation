@@ -114,12 +114,12 @@
       <div v-if="chatOpen" class="fab-chat-panel">
         <div class="fab-chat-header">
           <div class="fab-chat-header-left">
-            <svg viewBox="0 0 28 28" fill="none" width="22" height="22">
-              <circle cx="14" cy="14" r="14" fill="rgba(255,255,255,0.2)"/>
-              <path d="M8 17 Q11 8 14 11 Q17 14 20 9" stroke="#fff" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-              <circle cx="10" cy="16" r="1.4" fill="#fff"/>
-              <circle cx="18" cy="13" r="1.4" fill="#fff"/>
-            </svg>
+            <img
+                src="/assets/logo.png"
+                alt="Logo"
+                class="iirs-logo"
+                onerror="this.style.display='none'"
+            />
             <span>JalDrishtiBot — Irrigation Assistant</span>
           </div>
           <button class="fab-close-btn" @click="chatOpen = false" aria-label="Close AquaBot chat">
@@ -376,6 +376,11 @@ function highlight(text) {
   align-items: center;
   justify-content: center;
   gap: 16px;
+}
+.iirs-logo {
+    width: 64px;   /* adjust as needed */
+    height: 64px;  /* adjust as needed */
+    object-fit: contain;
 }
 .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .nav-link {
