@@ -1,0 +1,16 @@
+node_modules/
+package-lock.json
+dist/
+build/
+*.log
+*.env
+*.local
+*.key
+*.pem
+*.crt
+*.p12
+*.jks
+*.keystore
+*.bak
+*.tmp
+*.swp   

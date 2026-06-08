@@ -28,7 +28,7 @@ from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 _THIS_DIR = Path(__file__).parent
-KB_DIR = _THIS_DIR / "data"
+KB_DIR = _THIS_DIR / backend/"data"
 DEFAULT_INDEX_DIR = KB_DIR / ".rag_index"
 
 

@@ -120,7 +120,7 @@
               <circle cx="10" cy="16" r="1.4" fill="#fff"/>
               <circle cx="18" cy="13" r="1.4" fill="#fff"/>
             </svg>
-            <span>AquaBot — Irrigation Assistant</span>
+            <span>JalDrishtiBot — Irrigation Assistant</span>
           </div>
           <button class="fab-close-btn" @click="chatOpen = false" aria-label="Close AquaBot chat">
             <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
@@ -144,7 +144,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import AquaBotChat from './AquaBotChat.vue'
+import AquaBotChat from './jaldrishtibot.vue'
 
 defineProps({ isDark: { type: Boolean, default: false } })
 defineEmits(['home', 'docs', 'faqs', 'launch'])
