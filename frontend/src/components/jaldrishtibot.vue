@@ -8,14 +8,12 @@
       <!-- Welcome -->
       <div v-if="messages.length === 0" class="welcome-screen">
         <div class="welcome-icon">
-          <div class="welcome-icon">
-            <img
-                src="/assets/logo.png"
-                alt="Logo"
-                class="iirs-logo"
-                onerror="this.style.display='none'"
-            />
-          </div>
+          <img
+              src="/assets/logo.png"
+              alt="Logo"
+              class="iirs-logo"
+              onerror="this.style.display='none'"
+          />
         </div>
         <h2 class="welcome-title">Hi, I'm JalDrishtiBot</h2>
         <p class="welcome-sub">Ask me about irrigation, crop water requirements, SAVI, CWR, IWR, or field conditions.</p>
@@ -197,7 +195,7 @@ export default {
       currentStream: null,
       abortController: null,
       suggestions: [
-        'What is the current CWR?',
+        'What is CWR?',
         'Explain crop water requirements',
         'What growth stage is wheat in?',
         'How is IWR calculated?'

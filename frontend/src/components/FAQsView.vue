@@ -377,11 +377,7 @@ function highlight(text) {
   justify-content: center;
   gap: 16px;
 }
-.iirs-logo {
-    width: 64px;   /* adjust as needed */
-    height: 64px;  /* adjust as needed */
-    object-fit: contain;
-}
+
 .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .nav-link {
   display: inline-flex;

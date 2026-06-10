@@ -47,14 +47,6 @@
     </button>
 
     <!-- Selected Point Icon (Top of bottom-left group) -->
-    <button
-      class="selected-point-icon"
-      @click="showInfoPanel = !showInfoPanel"
-      :title="showInfoPanel ? 'Hide selected point panel' : 'Show selected point panel'"
-      :aria-label="showInfoPanel ? 'Hide selected point panel' : 'Show selected point panel'"
-    >
-      <span class="point-icon" aria-hidden="true">📍</span>
-    </button>
 
     <!-- Unified Pixel Popup (hover follows cursor, click pins the same card) -->
     <div

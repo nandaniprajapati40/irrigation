@@ -97,21 +97,26 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-
     container_name: ollama
-
     ports:
       - "11434:11434"
-
     volumes:
       - ollama_data:/root/.ollama
-
     restart: unless-stopped
-
     networks:
       - irrigation_network
-
     logging: *default_logging
+    entrypoint: >
+      sh -c "
+        ollama serve &
+        sleep 15 &&
+        ollama pull llama3.2:3b &&
+        ollama pull qwen2.5:3b && configs:
+        ollama pull nomic-embed-text &&
+        wait
+      "
+  
+  
 
 
   mongodb:
