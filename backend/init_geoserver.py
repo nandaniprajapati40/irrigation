@@ -1,36 +1,3 @@
-
-
-"""
-init_geoserver.py
-─────────────────────────────────────────────────────────────────────────────
-GeoServer REST API wrapper.
-
-Fixes applied:
-  - <n> → <n> in all XML payloads (GeoServer was rejecting every POST)
-  - Removed all references to GEOSERVER['datastore'] (key does not exist).
-    Methods that need a store name now accept `store_name` as a parameter.
-  - publish_all_layers: fixed date_strings crash (was iterating dicts as
-    tuples); now uses processed_collection properly.
-  - create_datastores: each store points at the correct per-parameter dir
-    so GeoServer can serve the right rasters.
-  - update_coverage_store_file: unchanged — used by main.py to swap rasters.
-
-FIX-GEOSERVER-1 (2026-04-16):
-  Added publish_coverage() — POSTs to .../coveragestores/{store}/coverages
-  to register the layer in GeoServer for the first time.  This is the missing
-  step that caused configure_layer to always return 404 and assign_style to
-  always return 500: update_coverage_store_file() only updates the file
-  pointer; it does NOT auto-publish the coverage.
-
-  configure_layer() now calls publish_coverage() on 404 and retries the GET
-  before proceeding with the PUT, so the full sequence is safe on both first
-  run (new store) and subsequent runs (existing layer refresh).
-
-  push_to_geoserver() in main.py now checks return values and only logs
-  when configure_layer + assign_style both succeed, eliminating the
-  false-positive "Forecast layer ready" messages.
-"""
-
 import xml.etree.ElementTree as ET
 import logging
 from pathlib import Path

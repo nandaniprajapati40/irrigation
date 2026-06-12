@@ -328,7 +328,8 @@ const calLoading            = ref(false)
 const availableDates        = ref([])      // [{date, slot, season, layers}]
 const selectedCalendarDate  = ref(null)
 const currentslot           = ref('today')
-const API_BASE              = (process.env.VUE_APP_API_BASE || '').replace(/\/$/, '')
+// const API_BASE              = (process.env.VUE_APP_API_BASE || '').replace(/\/$/, '')
+const API_BASE = "http://localhost:8000"
 const todayISO = formatLocalISO(new Date())
 
 function bringAppWidgetToFront(widget) {

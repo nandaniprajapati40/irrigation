@@ -76,7 +76,7 @@ NODATA         = -9999.0
 
 # All parameters including ETc
 PARAMS: List[str] = ["savi", "kc", "cwr", "iwr", "etc"]
-FC_PARAMS: List[str] = ["kc", "etc","cwr", "iwr"]   # parameters that get forecast rasters
+FC_PARAMS: List[str] = ["cwr", "iwr"]   # parameters that get forecast rasters
 POINT_FORECAST_PARAMS: List[str] = ["cwr", "iwr"]    # pixel popup forecast values shown to users
 
 FORECAST_WINDOWS = ["5day", "10day", "15day"]
@@ -1081,27 +1081,27 @@ def push_to_geoserver() -> None:
             except Exception as e:
                 logger.warning(f"[geoserver] {store}: {e}")
 
-    for param in FC_PARAMS:
-        for slot in slots:
-            for window in FORECAST_WINDOWS:
-                p = forecast_path(param, slot, window)
-                if not p.exists():
-                    continue
-                store = f"{param}_{slot}_{window}"
-                # CWR/IWR forecast rasters are cumulative (mm_total) so they
-                # need dedicated SLD styles with the wider 0-200 mm colour range.
-                if param in ("cwr", "iwr"):
-                    fc_style = f"{param}_forecast_style"
-                else:
-                    fc_style = f"{param}_style"
-                try:
-                    gs.create_coverage_store_if_not_exists(store, p)
-                    gs.update_coverage_store_file(store, p)
-                    gs.configure_layer(layer_name=store, store_name=store)
-                    gs.assign_style(store, fc_style)
-                    logger.info(f"[geoserver] ✅ Forecast layer ready: {store} (style={fc_style})")
-                except Exception as e:
-                    logger.warning(f"[geoserver] {store}: {e}")
+    # for param in FC_PARAMS:
+    #     for slot in slots:
+    #         for window in FORECAST_WINDOWS:
+    #             p = forecast_path(param, slot, window)
+    #             if not p.exists():
+    #                 continue
+    #             store = f"{param}_{slot}_{window}"
+    #             # CWR/IWR forecast rasters are cumulative (mm_total) so they
+    #             # need dedicated SLD styles with the wider 0-200 mm colour range.
+    #             if param in ("cwr", "iwr"):
+    #                 fc_style = f"{param}_forecast_style"
+    #             else:
+    #                 fc_style = f"{param}_style"
+    #             try:
+    #                 gs.create_coverage_store_if_not_exists(store, p)
+    #                 gs.update_coverage_store_file(store, p)
+    #                 gs.configure_layer(layer_name=store, store_name=store)
+    #                 gs.assign_style(store, fc_style)
+    #                 logger.info(f"[geoserver] ✅ Forecast layer ready: {store} (style={fc_style})")
+    #             except Exception as e:
+    #                 logger.warning(f"[geoserver] {store}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

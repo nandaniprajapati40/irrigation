@@ -100,8 +100,8 @@ const loading = ref(false)
 const error = ref(null)
 const layerOptions = computed(() => mode.value === 'cumulative' ? CUMULATIVE_LAYER_OPTIONS : MONTHLY_LAYER_OPTIONS)
 
-const API_BASE = (process.env.VUE_APP_API_BASE || '').replace(/\/$/, '')
-
+//const API_BASE = (process.env.VUE_APP_API_BASE || '').replace(/\/$/, '')
+const API_BASE = "http://localhost:8000"
 const YEAR_COLORS = [
   '#0f4c81',
   '#1f7a5c',

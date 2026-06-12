@@ -391,7 +391,8 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import DataChart from './DataChart.vue'
 import PixelChart from './PixelChart.vue'
-const API_BASE = (process.env.VUE_APP_API_BASE || '').replace(/\/$/, '')
+//const API_BASE = (process.env.VUE_APP_API_BASE || '').replace(/\/$/, '')
+const API_BASE = "http://localhost:8000"
 const pixelTimeSeries         = ref(null)   // /api/pixel-timeseries response
 const showPixelWidget         = ref(false)
 const pixelWidgetMinimized    = ref(false)
@@ -1131,7 +1132,8 @@ const mapStyles = [
 ]
 
 // GeoServer configuration
-const GEOSERVER_URL = '/geoserver'
+// const GEOSERVER_URL = '/geoserver'
+const GEOSERVER_URL = 'http://localhost:8080/geoserver'
 const WORKSPACE = 'irrigation'
 const MAP_MIN_ZOOM = 8
 const MAP_MAX_ZOOM = 17
