@@ -1,0 +1,14 @@
+<coverageStore>
+  <id>CoverageStoreInfoImpl--7a41c379:19ea1142793:-6bee</id>
+  <name>iwr_60_10day</name>
+  <type>GeoTIFF</type>
+  <enabled>true</enabled>
+  <workspace>
+    <id>WorkspaceInfoImpl--4592563c:19ea10e1271:-8000</id>
+  </workspace>
+  <__default>false</__default>
+  <dateCreated>2026-06-07 07:57:27.453 UTC</dateCreated>
+  <dateModified>2026-06-07 07:57:27.460 UTC</dateModified>
+  <disableOnConnFailure>false</disableOnConnFailure>
+  <url>file:/app/data/export/geoserver/forecast/iwr/iwr_60_10day.tif</url>
+</coverageStore>

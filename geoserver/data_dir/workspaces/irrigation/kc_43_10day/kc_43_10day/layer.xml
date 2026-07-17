@@ -1,0 +1,19 @@
+<layer>
+  <name>kc_43_10day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-789d</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-717d</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-789e</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:56:07.249 UTC</dateCreated>
+  <dateModified>2026-06-07 07:56:07.271 UTC</dateModified>
+</layer>

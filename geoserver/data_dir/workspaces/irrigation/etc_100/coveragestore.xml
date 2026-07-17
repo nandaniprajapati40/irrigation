@@ -1,0 +1,14 @@
+<coverageStore>
+  <id>CoverageStoreInfoImpl--2774525f:19ea1105caf:-772f</id>
+  <name>etc_100</name>
+  <type>GeoTIFF</type>
+  <enabled>true</enabled>
+  <workspace>
+    <id>WorkspaceInfoImpl--4592563c:19ea10e1271:-8000</id>
+  </workspace>
+  <__default>false</__default>
+  <dateCreated>2026-06-07 07:52:35.274 UTC</dateCreated>
+  <dateModified>2026-06-07 07:52:35.279 UTC</dateModified>
+  <disableOnConnFailure>false</disableOnConnFailure>
+  <url>file:/app/data/export/geoserver/history/etc/etc_100.tif</url>
+</coverageStore>

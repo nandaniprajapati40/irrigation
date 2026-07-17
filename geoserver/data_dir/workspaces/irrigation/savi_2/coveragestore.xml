@@ -1,0 +1,14 @@
+<coverageStore>
+  <id>CoverageStoreInfoImpl--2774525f:19ea1105caf:-7ffa</id>
+  <name>savi_2</name>
+  <type>GeoTIFF</type>
+  <enabled>true</enabled>
+  <workspace>
+    <id>WorkspaceInfoImpl--4592563c:19ea10e1271:-8000</id>
+  </workspace>
+  <__default>false</__default>
+  <dateCreated>2026-06-07 07:51:05.97 UTC</dateCreated>
+  <dateModified>2026-06-07 07:51:05.107 UTC</dateModified>
+  <disableOnConnFailure>false</disableOnConnFailure>
+  <url>file:/app/data/export/geoserver/history/savi/savi_2.tif</url>
+</coverageStore>

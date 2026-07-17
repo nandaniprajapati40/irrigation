@@ -1,0 +1,23 @@
+apiVersion : v1
+kind: ConfigMap
+metadata:
+  name: jaldrishti-config
+  namespace: jaldrishti
+
+data :
+  EE_EMAIL=aman.akumar.choudhary@gmail.com
+  EE_PROJECT_ID=irrigation-project-485820  
+  MONGODB_URI=mongodb://localhost:27017
+  MONGODB_DB=irrigation_db
+  MOSDAC_USERNAME=akaman446
+  MOSDAC_PASSWORD=@12Aman#
+  MOSDAC_SFTP_HOST=ftp.mosdac.gov.in
+  GEOSERVER_URL=http://localhost/geoserver
+  GEOSERVER_USER=admin
+  GEOSERVER_PASS=geoserver
+  GEOSERVER_WORKSPACE=irrigation
+  RF_N_ESTIMATORS=100
+  RF_MAX_DEPTH=10
+  FORECAST_DAYS=15
+  CLOUD_THRESHOLD=20
+  SAVI_L_FACTOR=0.5

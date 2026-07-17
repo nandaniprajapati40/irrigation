@@ -1,0 +1,19 @@
+<layer>
+  <name>iwr_143_5day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-6904</id>
+  <type>RASTER</type>
+  <defaultStyle class="dynamic-proxy">
+    <id>iwr_forecast_style</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-6905</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:57:43.431 UTC</dateCreated>
+  <dateModified>2026-06-07 07:57:43.457 UTC</dateModified>
+</layer>

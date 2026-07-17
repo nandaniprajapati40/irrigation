@@ -1,0 +1,14 @@
+<coverageStore>
+  <id>CoverageStoreInfoImpl--7a41c379:19ea1142793:-741a</id>
+  <name>etc_154_5day</name>
+  <type>GeoTIFF</type>
+  <enabled>true</enabled>
+  <workspace>
+    <id>WorkspaceInfoImpl--4592563c:19ea10e1271:-8000</id>
+  </workspace>
+  <__default>false</__default>
+  <dateCreated>2026-06-07 07:56:44.652 UTC</dateCreated>
+  <dateModified>2026-06-07 07:56:44.657 UTC</dateModified>
+  <disableOnConnFailure>false</disableOnConnFailure>
+  <url>file:/app/data/export/geoserver/forecast/etc/etc_154_5day.tif</url>
+</coverageStore>

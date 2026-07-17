@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: jaldrishti
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: your-registry/backend:latest  # Replace with your image registry
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: jaldrishti-config
+        - secretRef:
+            name: jaldrishti-secrets
+        env:
+        - name: BACKEND_DATA_DIR
+          value: /app/data
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /app/service_account_key.json
+        volumeMounts:
+        - name: backend-data
+          mountPath: /app/data
+        - name: backend-env
+          mountPath: /app/.env
+          subPath: .env
+          readOnly: true
+        - name: google-credentials
+          mountPath: /app/service_account_key.json
+          subPath: service_account_key.json
+          readOnly: true
+        resources:
+          requests:
+            memory: "6Gi"
+            cpu: "4000m"
+          limits:
+            memory: "8Gi"
+            cpu: "6000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        securityContext:
+          shmSize: 2Gi
+      volumes:
+      - name: backend-data
+        persistentVolumeClaim:
+          claimName: backend-data-pvc
+      - name: backend-env
+        secret:
+          secretName: backend-env-secret
+          optional: true
+      - name: google-credentials
+        secret:
+          secretName: google-credentials
+          optional: true

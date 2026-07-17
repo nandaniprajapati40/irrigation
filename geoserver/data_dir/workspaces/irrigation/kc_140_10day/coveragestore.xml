@@ -1,0 +1,14 @@
+<coverageStore>
+  <id>CoverageStoreInfoImpl--2774525f:19ea1105caf:-7181</id>
+  <name>kc_140_10day</name>
+  <type>GeoTIFF</type>
+  <enabled>true</enabled>
+  <workspace>
+    <id>WorkspaceInfoImpl--4592563c:19ea10e1271:-8000</id>
+  </workspace>
+  <__default>false</__default>
+  <dateCreated>2026-06-07 07:53:46.606 UTC</dateCreated>
+  <dateModified>2026-06-07 07:53:46.614 UTC</dateModified>
+  <disableOnConnFailure>false</disableOnConnFailure>
+  <url>file:/app/data/export/geoserver/forecast/kc/kc_140_10day.tif</url>
+</coverageStore>

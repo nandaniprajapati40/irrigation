@@ -1,0 +1,14 @@
+<coverageStore>
+  <id>CoverageStoreInfoImpl--2774525f:19ea1105caf:-74d3</id>
+  <name>kc_46_5day</name>
+  <type>GeoTIFF</type>
+  <enabled>true</enabled>
+  <workspace>
+    <id>WorkspaceInfoImpl--4592563c:19ea10e1271:-8000</id>
+  </workspace>
+  <__default>false</__default>
+  <dateCreated>2026-06-07 07:53:04.992 UTC</dateCreated>
+  <dateModified>2026-06-07 07:53:05.0 UTC</dateModified>
+  <disableOnConnFailure>false</disableOnConnFailure>
+  <url>file:/app/data/export/geoserver/forecast/kc/kc_46_5day.tif</url>
+</coverageStore>

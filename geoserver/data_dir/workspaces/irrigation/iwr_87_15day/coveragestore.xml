@@ -1,0 +1,14 @@
+<coverageStore>
+  <id>CoverageStoreInfoImpl--7a41c379:19ea1142793:-6af8</id>
+  <name>iwr_87_15day</name>
+  <type>GeoTIFF</type>
+  <enabled>true</enabled>
+  <workspace>
+    <id>WorkspaceInfoImpl--4592563c:19ea10e1271:-8000</id>
+  </workspace>
+  <__default>false</__default>
+  <dateCreated>2026-06-07 07:57:32.370 UTC</dateCreated>
+  <dateModified>2026-06-07 07:57:32.376 UTC</dateModified>
+  <disableOnConnFailure>false</disableOnConnFailure>
+  <url>file:/app/data/export/geoserver/forecast/iwr/iwr_87_15day.tif</url>
+</coverageStore>

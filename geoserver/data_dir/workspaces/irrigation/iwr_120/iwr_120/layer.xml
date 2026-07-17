@@ -1,0 +1,19 @@
+<layer>
+  <name>iwr_120</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-7b3d</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-7370</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-7b3e</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:55:49.915 UTC</dateCreated>
+  <dateModified>2026-06-07 07:55:49.935 UTC</dateModified>
+</layer>

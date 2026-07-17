@@ -1,0 +1,14 @@
+<coverageStore>
+  <id>CoverageStoreInfoImpl--7a41c379:19ea1142793:-739e</id>
+  <name>cwr_4_15day</name>
+  <type>GeoTIFF</type>
+  <enabled>true</enabled>
+  <workspace>
+    <id>WorkspaceInfoImpl--4592563c:19ea10e1271:-8000</id>
+  </workspace>
+  <__default>false</__default>
+  <dateCreated>2026-06-07 07:56:47.507 UTC</dateCreated>
+  <dateModified>2026-06-07 07:56:47.524 UTC</dateModified>
+  <disableOnConnFailure>false</disableOnConnFailure>
+  <url>file:/app/data/export/geoserver/forecast/cwr/cwr_4_15day.tif</url>
+</coverageStore>

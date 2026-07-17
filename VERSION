@@ -1,0 +1,5 @@
+frontend=1.0.0
+backend=1.0.0
+geoserver=2.27.2
+ollama=0.1.0
+mongo=7.0.0

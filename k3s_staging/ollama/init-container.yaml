@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-model-loader
+  namespace: jaldrishti
+spec:
+  template:
+    spec:
+      containers:
+      - name: model-loader
+        image: ollama/ollama:latest
+        command:
+        - sh
+        - -c
+        - |
+          ollama serve &
+          sleep 15
+          ollama pull llama3.2:3b
+          ollama pull qwen2.5:3b
+          ollama pull nomic-embed-text
+          echo "Models loaded successfully"
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+      restartPolicy: OnFailure
+      volumes:
+      - name: ollama-data
+        persistentVolumeClaim:
+          claimName: ollama-data-pvc

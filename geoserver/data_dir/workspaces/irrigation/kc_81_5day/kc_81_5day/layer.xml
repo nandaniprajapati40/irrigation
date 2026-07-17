@@ -1,0 +1,19 @@
+<layer>
+  <name>kc_81_5day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-77bb</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-717d</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-77bc</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:56:12.738 UTC</dateCreated>
+  <dateModified>2026-06-07 07:56:12.760 UTC</dateModified>
+</layer>

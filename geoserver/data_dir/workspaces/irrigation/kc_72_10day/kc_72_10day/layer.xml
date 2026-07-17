@@ -1,0 +1,19 @@
+<layer>
+  <name>kc_72_10day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-77ef</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-717d</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-77f0</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:56:11.442 UTC</dateCreated>
+  <dateModified>2026-06-07 07:56:11.460 UTC</dateModified>
+</layer>

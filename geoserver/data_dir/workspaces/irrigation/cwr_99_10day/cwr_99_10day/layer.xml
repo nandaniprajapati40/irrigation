@@ -1,0 +1,19 @@
+<layer>
+  <name>cwr_99_10day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-7048</id>
+  <type>RASTER</type>
+  <defaultStyle class="dynamic-proxy">
+    <id>cwr_forecast_style</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-7049</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:57:05.413 UTC</dateCreated>
+  <dateModified>2026-06-07 07:57:05.434 UTC</dateModified>
+</layer>

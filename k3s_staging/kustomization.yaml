@@ -1,0 +1,24 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: jaldrishti
+  namespace: jaldrishti
+spec:
+  path: ./k3s_staging
+  prune: true
+  interval: 5m
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: jaldrishti
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - frontend/
+  - backend/
+  - mongodb/
+  - geoserver/
+  - ollama/
+  - ingress/
+  - ollama/init-container.yaml

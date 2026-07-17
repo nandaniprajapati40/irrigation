@@ -1,0 +1,19 @@
+<layer>
+  <name>kc_155_10day</name>
+  <id>LayerInfoImpl--2774525f:19ea1105caf:-70f7</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-717d</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--2774525f:19ea1105caf:-70f8</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:53:55.61 UTC</dateCreated>
+  <dateModified>2026-06-07 07:53:55.87 UTC</dateModified>
+</layer>

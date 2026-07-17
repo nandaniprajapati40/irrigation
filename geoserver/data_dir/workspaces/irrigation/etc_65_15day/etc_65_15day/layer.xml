@@ -1,0 +1,19 @@
+<layer>
+  <name>etc_65_15day</name>
+  <id>LayerInfoImpl--2774525f:19ea1105caf:-6e62</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-7531</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--2774525f:19ea1105caf:-6e63</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:54:26.109 UTC</dateCreated>
+  <dateModified>2026-06-07 07:54:26.132 UTC</dateModified>
+</layer>

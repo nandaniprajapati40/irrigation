@@ -1,0 +1,19 @@
+<layer>
+  <name>savi_65</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-7f7d</id>
+  <type>RASTER</type>
+  <defaultStyle>
+    <id>StyleInfoImpl--2774525f:19ea1105caf:-6fdc</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-7f7e</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:55:18.514 UTC</dateCreated>
+  <dateModified>2026-06-07 07:55:18.542 UTC</dateModified>
+</layer>

@@ -1,0 +1,19 @@
+<layer>
+  <name>cwr_53_5day</name>
+  <id>LayerInfoImpl--7a41c379:19ea1142793:-71e9</id>
+  <type>RASTER</type>
+  <defaultStyle class="dynamic-proxy">
+    <id>cwr_forecast_style</id>
+  </defaultStyle>
+  <resource class="coverage">
+    <id>CoverageInfoImpl--7a41c379:19ea1142793:-71ea</id>
+  </resource>
+  <queryable>true</queryable>
+  <opaque>false</opaque>
+  <attribution>
+    <logoWidth>0</logoWidth>
+    <logoHeight>0</logoHeight>
+  </attribution>
+  <dateCreated>2026-06-07 07:56:57.178 UTC</dateCreated>
+  <dateModified>2026-06-07 07:56:57.198 UTC</dateModified>
+</layer>
