@@ -25,6 +25,16 @@ from config import (
     STUDY_AREA, DIRECTORIES, GEOSERVER, SARIMAX_CONFIG,
     WHEAT_PARAMS
 )
+from season_retention import (
+    MAX_SEASONS,
+    SEASON_END_MONTH,
+    SEASON_MONTHS,
+    SEASON_START_MONTH,
+    cleanup_pipeline_rasters,
+    get_allowed_season_ids,
+    get_season_id,
+    is_in_season,
+)
 
 
 from extract_raster_pixels import (
@@ -37,7 +47,6 @@ from extract_raster_pixels import (
     pixel_timeseries_for_pixel,
     read_history_pixel_value as raster_read_history_pixel_value,
 )
-from logging_config import setup_logging
 import models
 from models import (
     build_forecast_exog,
@@ -52,7 +61,6 @@ from models import (
     KC_MAX,
 )
 
-setup_logging()
 logger = logging.getLogger(__name__)
 
 CWR_MIN = 0.0
@@ -213,10 +221,6 @@ _LGB_MODELS = _load_lgb_models()
 # SEASONAL CONSTANTS
 # ═══════════════════════════════════════════════════════════════════════════
 
-SEASON_START_MONTH = 11
-SEASON_END_MONTH = 4
-SEASON_MONTHS = {11, 12, 1, 2, 3, 4}
-MAX_SEASONS = 5
 HISTORY_DATES = 191
 FORECAST_DAYS = 15
 NODATA = -9999.0
@@ -264,34 +268,9 @@ for _param in FC_PARAMS:
 # SEASONAL HELPERS (unchanged)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_season_id(date: datetime) -> str:
-    m, y = date.month, date.year
-    if m >= SEASON_START_MONTH:
-        return f"{y}-{str(y + 1)[-2:]}"
-    elif m <= SEASON_END_MONTH:
-        return f"{y - 1}-{str(y)[-2:]}"
-    else:
-        return None
-
-def is_in_season(date: datetime) -> bool:
-    return date.month in SEASON_MONTHS
-
 def get_season_start(season_id: str) -> datetime:
     start_year = int(season_id.split("-")[0])
     return datetime(start_year, SEASON_START_MONTH, 1)
-
-def get_allowed_season_ids() -> List[str]:
-    today = datetime.utcnow()
-    current = get_season_id(today)
-    if current is None:
-        anchor_year = today.year - 1
-        current = f"{anchor_year}-{str(anchor_year + 1)[-2:]}"
-    anchor_start_year = int(current.split("-")[0])
-    seasons = []
-    for i in range(MAX_SEASONS):
-        y = anchor_start_year - i
-        seasons.append(f"{y}-{str(y + 1)[-2:]}")
-    return seasons
 
 def filter_to_allowed_seasons(dates: List[datetime]) -> List[datetime]:
     allowed = set(get_allowed_season_ids())
@@ -446,67 +425,77 @@ def _get_wheat_mask() -> Optional[Dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SEASONAL PURGE (unchanged)
+# SEASONAL RETENTION
 # ═══════════════════════════════════════════════════════════════════════════
 
 def purge_out_of_season_rasters() -> int:
-    allowed_seasons = set(get_allowed_season_ids())
-    deleted = 0
-    for param in PARAMS:
-        param_dir = HISTORY_DIR / param
-        for tif in param_dir.glob("*.tif"):
-            try:
-                with rasterio.open(tif) as src:
-                    acq = src.tags().get("acquisition_date")
-                if not acq:
-                    continue
-                d = datetime.strptime(acq, "%Y-%m-%d")
-                if not is_in_season(d):
-                    tif.unlink()
-                    deleted += 1
-                    logger.info(f"[purge] off-season: {tif.name}")
-                    continue
-                sid = get_season_id(d)
-                if sid and sid not in allowed_seasons:
-                    tif.unlink()
-                    deleted += 1
-                    logger.info(f"[purge] old season {sid}: {tif.name}")
-            except Exception:
-                pass
-    for param in FC_PARAMS:
-        for tif in (FORECAST_DIR / param).glob("*.tif"):
-            try:
-                with rasterio.open(tif) as src:
-                    acq = src.tags().get("acquisition_date") or src.tags().get("reference_date")
-                if acq:
-                    d = datetime.strptime(acq, "%Y-%m-%d")
-                    sid = get_season_id(d)
-                    if not is_in_season(d) or (sid and sid not in allowed_seasons):
-                        tif.unlink()
-                        deleted += 1
-            except Exception:
-                pass
-    if deleted:
-        logger.info(f"[purge] Removed {deleted} out-of-retention rasters")
-    return deleted
+    """Compatibility wrapper for callers that only need the file count."""
+    summary = cleanup_old_rasters()
+    return int(summary["removed"])
 
-def cleanup_old_rasters():
-    purge_out_of_season_rasters()
+
+def cleanup_old_rasters() -> Dict[str, object]:
+    """Keep only the current rolling five Nov-Apr seasons everywhere we publish."""
+    print("[startup] Cleanup: checking retention window and old rasters...", flush=True)
+    summary = cleanup_pipeline_rasters(
+        DIRECTORIES,
+        extra_forecast_directories=(SARIMAX_CONFIG["forecast_raster_dir"],),
+    )
+    print(
+        "[startup] Cleanup: raster retention done "
+        f"(removed={summary['removed']}, kept={summary['kept']}, errors={summary['errors']})",
+        flush=True,
+    )
+
+    try:
+        print("[startup] Cleanup: pruning old MongoDB records...", flush=True)
+        from mongo import prune_out_of_retention_records
+        summary["database"] = prune_out_of_retention_records()
+        print(
+            "[startup] Cleanup: MongoDB pruning done "
+            f"(removed={summary['database'].get('removed', 0)}, "
+            f"errors={summary['database'].get('errors', 0)})",
+            flush=True,
+        )
+    except Exception:
+        # The file cleanup remains useful when MongoDB is temporarily offline.
+        summary["database"] = {"removed": 0, "errors": 1}
+        print("[startup] Cleanup: MongoDB pruning skipped or failed.", flush=True)
+
+    print("[startup] Cleanup: removing stale GeoServer slot files...", flush=True)
     dates = _latest_n_complete_dates(HISTORY_DATES)
     n = len(dates)
     valid_slots = _make_slots(n)
+    stale_slots_removed = 0
     for param in PARAMS:
         valid_history = {f"{param}_{s}.tif" for s in valid_slots}
         for f in (HISTORY_DIR / param).glob("*.tif"):
             if f.name not in valid_history:
-                f.unlink()
-                logger.debug(f"[cleanup] removed stale slot file: {f.name}")
+                try:
+                    f.unlink()
+                    stale_slots_removed += 1
+                except OSError:
+                    summary["errors"] = int(summary["errors"]) + 1
     for param in FC_PARAMS:
         valid_forecast = {f"{param}_{s}_{w}.tif" for s in valid_slots for w in FORECAST_WINDOWS}
         for f in (FORECAST_DIR / param).glob("*.tif"):
             if f.name not in valid_forecast:
-                f.unlink()
-                logger.debug(f"[cleanup] removed stale forecast file: {f.name}")
+                try:
+                    f.unlink()
+                    stale_slots_removed += 1
+                except OSError:
+                    summary["errors"] = int(summary["errors"]) + 1
+
+    summary["stale_slots_removed"] = stale_slots_removed
+    summary["removed"] = int(summary["removed"]) + stale_slots_removed
+    clear_raster_pixel_cache()
+    print(
+        "[startup] Cleanup complete: "
+        f"dates={n}, stale_slots_removed={stale_slots_removed}, "
+        f"total_removed={summary['removed']}",
+        flush=True,
+    )
+    return summary
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -627,14 +616,26 @@ def generate_history_rasters() -> int:
     dates = _latest_n_complete_dates(HISTORY_DATES)
     if not dates:
         logger.error("[history] No complete Sentinel dates in allowed seasons")
+        print("[history] No complete Sentinel dates in allowed seasons.", flush=True)
         return 0
+    print(
+        "[history] Starting history raster generation: "
+        f"{len(dates)} dates from {dates[-1].date()} to {dates[0].date()}",
+        flush=True,
+    )
     logger.info(f"[history] {len(dates)} seasonal dates: "
                f"{dates[-1].date()} → {dates[0].date()} "
                f"| seasons={sorted(set(get_season_id(d) for d in dates))}")
     total = 0
     for param, (src_dir, pattern) in _SRC.items():
+        print(f"[history] {param}: scanning {src_dir}", flush=True)
         src_by_date = {d: p for d, p in _dated_files(src_dir, pattern)}
         for idx, date in enumerate(dates):
+            if idx == 0 or (idx + 1) % 25 == 0 or idx + 1 == len(dates):
+                print(
+                    f"[history] {param}: date {idx + 1}/{len(dates)} ({date.date()})",
+                    flush=True,
+                )
             src_path = src_by_date.get(date)
             if src_path is None:
                 if param != "etc":
@@ -655,7 +656,12 @@ def generate_history_rasters() -> int:
                 total += 1
                 logger.info(f"[history] {dst_path.name} ({date.date()})")
         logger.info(f"[history] {param} done")
+        print(f"[history] {param}: done", flush=True)
     logger.info(f"[history] Total: {total} / {len(dates) * len(PARAMS)}")
+    print(
+        f"[history] Complete: {total}/{len(dates) * len(PARAMS)} rasters ready",
+        flush=True,
+    )
     return total
 
 
@@ -1170,17 +1176,25 @@ def generate_all_forecast_rasters() -> int:
     dates = _latest_n_complete_dates(HISTORY_DATES)
     if not dates:
         logger.error("[forecast] No Sentinel dates available")
+        print("[forecast] No Sentinel dates available.", flush=True)
         return 0
     
     total = 0
     n = len(dates)
     slots = _make_slots(n)
+    print(f"[forecast] Starting forecast raster generation for {n} slots.", flush=True)
     
     # Load climatology
+    print("[forecast] Loading climatology...", flush=True)
     _get_clim_series()
     
     for idx, date in enumerate(dates):
         slot = slots[idx]
+        if idx == 0 or (idx + 1) % 10 == 0 or idx + 1 == n:
+            print(
+                f"[forecast] Slot {idx + 1}/{n}: {slot} ({date.date()})",
+                flush=True,
+            )
         
         # Check if all forecasts are fresh
         params_with_template = [p for p in FC_PARAMS if history_path(p, slot).exists()]
@@ -1200,6 +1214,7 @@ def generate_all_forecast_rasters() -> int:
         forecasts = generate_forecast_for_date(date, FORECAST_DAYS)
         if not forecasts:
             logger.warning(f"[forecast] No forecast for {slot} ({date.date()})")
+            print(f"[forecast] Slot {slot}: no forecast generated.", flush=True)
             continue
         
         n_rasters = 0
@@ -1218,9 +1233,14 @@ def generate_all_forecast_rasters() -> int:
                         total += 1
         
         logger.info(f"[forecast] slot={slot} ({date.date()}): {n_rasters} files written")
+        print(
+            f"[forecast] Slot {slot}: {n_rasters} forecast rasters written/ready",
+            flush=True,
+        )
     
     expected_total = n * len(FC_PARAMS) * len(FORECAST_WINDOWS)
     logger.info(f"[forecast] ALL: {total} / {expected_total}")
+    print(f"[forecast] Complete: {total}/{expected_total} rasters ready", flush=True)
     return total
 
 
@@ -1230,17 +1250,23 @@ def generate_all_forecast_rasters() -> int:
 
 def push_to_geoserver() -> None:
     try:
+        print("[geoserver] Initializing GeoServer client...", flush=True)
         from init_geoserver import GeoServerAPI
         gs = GeoServerAPI()
     except Exception as e:
         logger.warning(f"[geoserver] Cannot init GeoServerAPI: {e}")
+        print(f"[geoserver] Cannot initialize GeoServer client: {e}", flush=True)
         return
     
     dates = _latest_n_complete_dates(HISTORY_DATES)
     n = len(dates)
     slots = _make_slots(n)
+    expected = n * len(PARAMS)
+    pushed = 0
+    print(f"[geoserver] Publishing {expected} history layers...", flush=True)
     
     for param in PARAMS:
+        print(f"[geoserver] {param}: publishing {n} slots", flush=True)
         for slot in slots:
             p = history_path(param, slot)
             if not p.exists():
@@ -1248,6 +1274,12 @@ def push_to_geoserver() -> None:
             store = f"{param}_{slot}"
             style = "etc_style" if param == "etc" else f"{param}_style"
             try:
+                pushed += 1
+                if pushed == 1 or pushed % 25 == 0 or pushed == expected:
+                    print(
+                        f"[geoserver] Layer {pushed}/{expected}: {store}",
+                        flush=True,
+                    )
                 store_ok = gs.create_coverage_store_if_not_exists(store, p)
                 file_ok = gs.update_coverage_store_file(store, p)
                 configure_ok = gs.configure_layer(layer_name=store, store_name=store)
@@ -1258,6 +1290,8 @@ def push_to_geoserver() -> None:
                     logger.warning(f"[geoserver] ⚠ Partial: {store}")
             except Exception as e:
                 logger.warning(f"[geoserver] {store}: {e}")
+                print(f"[geoserver] {store}: failed ({e})", flush=True)
+    print(f"[geoserver] Complete: attempted {pushed}/{expected} layers", flush=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1268,17 +1302,23 @@ def run_pipeline() -> Dict:
     logger.info("═" * 65)
     logger.info("run_pipeline() START — v11.0 (LightGBM v5.0)")
     logger.info("═" * 65)
+    print("[startup] Pipeline started.", flush=True)
     
-    cleanup_old_rasters()
+    print("[startup] Stage 1/5: cleanup", flush=True)
+    cleanup_summary = cleanup_old_rasters()
+    print("[startup] Stage 2/5: loading wheat mask", flush=True)
     _get_wheat_mask()
     
     logger.info("── A: History rasters ──")
+    print("[startup] Stage 3/5: history rasters", flush=True)
     h_total = generate_history_rasters()
     
     logger.info("── B/C: Forecast + rasters (LightGBM v5.0) ──")
+    print("[startup] Stage 4/5: forecast rasters", flush=True)
     f_total = generate_all_forecast_rasters()
     
     logger.info("── D: GeoServer ──")
+    print("[startup] Stage 5/5: GeoServer publish", flush=True)
     push_to_geoserver()
     clear_raster_pixel_cache()
     
@@ -1290,12 +1330,19 @@ def run_pipeline() -> Dict:
         "seasons": sorted(set(get_season_id(d) for d in dates)),
         "history_rasters": h_total,
         "forecast_rasters": f_total,
+        "retention": cleanup_summary,
         "grand_total": h_total + f_total,
         "units": "mm_per_day",
         "forecast_model": "LightGBM-v5.0 (raster-metadata + TimeSeriesSplit CV)",
         "model_version": "v11.0",
     }
     logger.info(f"DONE: {summary}")
+    print(
+        "[startup] Pipeline complete: "
+        f"dates={n}, history={h_total}, forecast={f_total}, "
+        f"removed={cleanup_summary['removed']}",
+        flush=True,
+    )
     return summary
 
 
@@ -2131,42 +2178,38 @@ async def model_info():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def main():
-    setup_logging()
-    logger.info("=" * 65)
-    logger.info("Irrigation Monitoring System v11.0 starting …")
-    logger.info(f"Seasonal cap: {MAX_SEASONS} seasons | Months: Nov–Apr")
-    logger.info(f"Allowed seasons: {get_allowed_season_ids()}")
-    logger.info(f"LightGBM v5.0 models loaded: CWR={_LGB_MODELS['cwr'] is not None}, "
-               f"IWR={_LGB_MODELS['iwr'] is not None}")
-    logger.info("=" * 65)
-    
+    print("[startup] main.py started.", flush=True)
     _get_wheat_mask()
     
     try:
         from rag_kb import warmup_ollama
+        print("[startup] Warming up Ollama chat model...", flush=True)
         warmup_ollama()
-        logger.info("✓ Ollama warmed up")
-    except Exception as e:
-        logger.warning(f"⚠ Ollama warmup failed: {e}")
+        print("[startup] Ollama warmup finished.", flush=True)
+    except Exception:
+        print("[startup] Ollama warmup skipped or failed.", flush=True)
+        pass
     
     run_pipeline()
     
     try:
         from scheduler import start_scheduler
+        print("[startup] Starting scheduler/watchdog...", flush=True)
         _scheduler, _observer = start_scheduler(
             delete_callback=cleanup_old_rasters,
             generate_callback=generate_operational_rasters,
             download_and_process_callback=None,
             single_image_pipeline_callback=process_single_sentinel_image,
         )
-        logger.info("✓ Scheduler + Watchdog started")
-    except Exception as e:
-        logger.error(f"✗ Scheduler failed to start: {e}", exc_info=True)
-        logger.warning("Continuing without scheduler — pipeline will NOT run automatically.")
+        print("[startup] Scheduler/watchdog started.", flush=True)
+    except Exception:
+        print("[startup] Scheduler/watchdog skipped or failed.", flush=True)
+        pass
     
+    print("[startup] Starting FastAPI server on http://0.0.0.0:8000", flush=True)
     uvicorn.run(
         app, host="0.0.0.0", port=8000,
-        log_level="info", access_log=True,
+        log_level="critical", access_log=False,
     )
 
 

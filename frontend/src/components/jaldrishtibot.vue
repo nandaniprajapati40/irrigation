@@ -151,9 +151,7 @@ export default {
   props: {
     apiBase: {
       type: String,
-      default: () =>
-        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE) ||
-        ''   // ← same-origin; nginx proxy handles /api/* → backend:8000
+      default: () => (process.env.VUE_APP_API_BASE || '').replace(/\/$/, '')
     },
     sessionId: {
       type: String,
@@ -262,7 +260,7 @@ export default {
     },
 
     // Resolves the base URL for API calls.
-    // '' (empty string) means same-origin — nginx on port 80 proxies /api/* to backend:8000.
+    // '' (empty string) means same-origin — nginx or the Vue dev proxy handles /api/*.
     // A non-empty apiBase prop overrides this (e.g. for pointing at a remote host).
     resolvedApiBase() {
       return (this.apiBase || '').replace(/\/$/, '')

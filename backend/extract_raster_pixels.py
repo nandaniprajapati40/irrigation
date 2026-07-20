@@ -11,6 +11,7 @@ from rasterio.warp import transform as warp_transform
 from rasterio.windows import Window
 
 from config import DIRECTORIES
+from season_retention import get_allowed_season_ids, get_season_id, is_in_season
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,6 @@ RASTER_PARAMS: Tuple[str, ...] = ("savi", "kc", "cwr", "iwr", "etc")
 NODATA = -9999.0
 EXTRA_NODATA_VALUES = (-9999.0, -999.0)
 WGS84_CRS_NAMES = {"EPSG:4326", "OGC:CRS84"}
-SEASON_START_MONTH = 11
-SEASON_END_MONTH = 4
-SEASON_MONTHS = {11, 12, 1, 2, 3, 4}
-MAX_SEASONS = 5
 
 
 class RasterPixelError(Exception):
@@ -50,33 +47,6 @@ class RasterLookupCancelled(RasterPixelError):
 _PIXEL_GRID: Optional[Dict] = None
 _HISTORY_FILE_CACHE: Dict[str, List[Tuple[datetime, Path]]] = {}
 _DATE_RE = re.compile(r"(\d{8})")
-
-
-def get_season_id(date: datetime) -> Optional[str]:
-    if date.month >= SEASON_START_MONTH:
-        return f"{date.year}-{str(date.year + 1)[-2:]}"
-    if date.month <= SEASON_END_MONTH:
-        return f"{date.year - 1}-{str(date.year)[-2:]}"
-    return None
-
-
-def is_in_season(date: datetime) -> bool:
-    return date.month in SEASON_MONTHS
-
-
-def get_allowed_season_ids(today: Optional[datetime] = None) -> List[str]:
-    today = today or datetime.utcnow()
-    current = get_season_id(today)
-    if current is None:
-        anchor_year = today.year - 1
-        current = f"{anchor_year}-{str(anchor_year + 1)[-2:]}"
-
-    anchor_start_year = int(current.split("-")[0])
-    seasons = []
-    for i in range(MAX_SEASONS):
-        year = anchor_start_year - i
-        seasons.append(f"{year}-{str(year + 1)[-2:]}")
-    return seasons
 
 
 def clear_raster_pixel_cache() -> None:

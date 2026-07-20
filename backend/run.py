@@ -11,24 +11,13 @@ import rasterio
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from config import DIRECTORIES
+from config import DIRECTORIES, SARIMAX_CONFIG
 from processor import DataProcessor
 import models
 from ee_init import init_ee
 from mongo import step_already_processed
+from season_retention import cleanup_pipeline_rasters, is_retained_date
 
-# ── Logging ────────────────────────────────────────────────────────────────
-log_file = DIRECTORIES["logs"] / "pipeline.log"
-log_file.parent.mkdir(parents=True, exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler(sys.stdout),
-    ],
-)
 logger = logging.getLogger(__name__)
 
 
@@ -50,31 +39,42 @@ def extract_date(filename: str) -> datetime:
 # FILE COLLECTORS
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _retained_files(files):
+    retained = []
+    for filepath in files:
+        try:
+            if is_retained_date(extract_date(filepath.name)):
+                retained.append(filepath)
+        except ValueError:
+            continue
+    return retained
+
+
 def get_sentinel2_files():
-    return sorted(DIRECTORIES["raw"]["sentinel2"].glob("S2_*.tif"))
+    return _retained_files(sorted(DIRECTORIES["raw"]["sentinel2"].glob("S2_*.tif")))
 
 def get_savi_files():
-    return sorted(DIRECTORIES["processed"]["savi"].glob("savi_*.tif"))
+    return _retained_files(sorted(DIRECTORIES["processed"]["savi"].glob("savi_*.tif")))
 
 def get_kc_files():
-    return sorted(DIRECTORIES["processed"]["kc"].glob("kc_*.tif"))
+    return _retained_files(sorted(DIRECTORIES["processed"]["kc"].glob("kc_*.tif")))
 
 def get_etc_files():
-    return sorted(DIRECTORIES["processed"]["ETc"].glob("etc_*.tif"))
+    return _retained_files(sorted(DIRECTORIES["processed"]["ETc"].glob("etc_*.tif")))
 
 def get_cwr_files():
-    return sorted(DIRECTORIES["processed"]["cwr"].glob("cwr_*.tif"))
+    return _retained_files(sorted(DIRECTORIES["processed"]["cwr"].glob("cwr_*.tif")))
 
 def get_pet_files():
     return [
         {"date": extract_date(f.name), "filepath": f}
-        for f in sorted(DIRECTORIES["raw"]["insat_pet"].glob("*.tif"))
+        for f in _retained_files(sorted(DIRECTORIES["raw"]["insat_pet"].glob("*.tif")))
     ]
 
 def get_rainfall_files():
     return [
         {"date": extract_date(f.name), "filepath": f}
-        for f in sorted(DIRECTORIES["raw"]["insat_rain"].glob("*.tif"))
+        for f in _retained_files(sorted(DIRECTORIES["raw"]["insat_rain"].glob("*.tif")))
     ]
 
 
@@ -124,10 +124,6 @@ def _needs_processing(step: str, date: datetime, out_path: Path) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def run_savi(processor: DataProcessor):
-    """
-    SAVI — incremental.
-    Skips any Sentinel file whose savi_YYYYMMDD.tif already exists + DB record.
-    """
     print("\n── SAVI ─────────────────────────────────────────────────────────")
     files = get_sentinel2_files()
     if not files:
@@ -152,6 +148,7 @@ def run_savi(processor: DataProcessor):
     for tif, date in todo:
         try:
             processor.calculate_savi({"date": date, "filepath": tif})
+            print(f"✅ SAVI generation completed for {tif.name}")
             ok += 1
         except Exception as e:
             err += 1
@@ -161,10 +158,6 @@ def run_savi(processor: DataProcessor):
 
 
 def run_kc(processor: DataProcessor):
-    """
-    Kc — incremental.
-    Skips any SAVI file whose kc_YYYYMMDD.tif already exists + DB record.
-    """
     print("\n── Kc ───────────────────────────────────────────────────────────")
     files = get_savi_files()
     if not files:
@@ -190,6 +183,8 @@ def run_kc(processor: DataProcessor):
     for tif in todo:
         try:
             processor.calculate_kc({"filepath": tif})
+            print(f"✅ Kc generation completed for {tif.name}")
+
             ok += 1
         except Exception as e:
             err += 1
@@ -199,18 +194,6 @@ def run_kc(processor: DataProcessor):
 
 
 def run_etc(processor: DataProcessor):
-    """
-    ETc = Kc × ET₀              [mm day⁻¹]
-
-    ET₀ = single daily INSAT-3D/3DR/3DS PET value on (or nearest to, ±2 days)
-          the Sentinel-2 acquisition date.
-
-    Thesis §5.4: "INSAT 3D daily reference evapotranspiration data of 4 km
-    were resampled and used to multiply with Kc maps of available dates."
-
-    PET reprojected bilinear from native CRS (EPSG:3857) → EPSG:32644 (Sentinel 10 m grid).
-    Incremental: skips any Kc file whose etc_YYYYMMDD.tif already exists + DB record.
-    """
     print("\n── ETc ──────────────────────────────────────────────────────────")
     pet_files = get_pet_files()
     kc_files  = get_kc_files()
@@ -264,6 +247,7 @@ def run_etc(processor: DataProcessor):
                 err += 1
                 continue
             processor.calculate_etc(kc_data, pet_data)
+            print(f"✅ ETc generation completed for {tif.name}")
             ok += 1
         except Exception as e:
             err += 1
@@ -302,6 +286,7 @@ def run_cwr(processor: DataProcessor):
     for etc_tif in todo:
         try:
             processor.calculate_cwr(etc_tif)
+            print(f"✅ CWR generation completed for {tif.name}")
             ok += 1
         except Exception as e:
             err += 1
@@ -365,6 +350,7 @@ def run_iwr(processor: DataProcessor):
                 cwr_tif      = cwr_tif,
                 rainfall_data = rain_data,
             )
+            print(f"✅ IWR generation completed for {tif.name}")
             ok += 1
         except Exception as e:
             err += 1
@@ -374,6 +360,15 @@ def run_iwr(processor: DataProcessor):
 
 
 def run_full_pipeline(processor: DataProcessor):
+    cleanup_pipeline_rasters(
+        DIRECTORIES,
+        extra_forecast_directories=(SARIMAX_CONFIG["forecast_raster_dir"],),
+    )
+    try:
+        from mongo import prune_out_of_retention_records
+        prune_out_of_retention_records()
+    except Exception:
+        pass
     print("\n" + "=" * 65)
     print("  FULL PIPELINE — INCREMENTAL (new files only)")
     print("=" * 65)

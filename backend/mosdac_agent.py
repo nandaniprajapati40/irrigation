@@ -781,6 +781,44 @@ class MosdacBrowser:
 
     def _select_geotiff_format(self) -> bool:
         """Select GeoTIFF output for either PET or Rainfall."""
+        # The current MOSDAC dialog renders the Format control asynchronously:
+        # for a few seconds it only shows "Loading Format...".  Wait for the
+        # actual options before trying selectors, otherwise a valid order modal
+        # is treated as a hard failure.
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            try:
+                body_text = self._page.locator("body").inner_text(timeout=2000)
+                if "Loading Format" not in body_text and re.search(r"Geo\s*Tiff|GEOTIFF|GeoTIFF", body_text, re.I):
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+
+        for select_sel in [
+            "select:near(:text('Format'))",
+            "xpath=//*[contains(normalize-space(.), 'Format')]/following::select[1]",
+            "select",
+        ]:
+            try:
+                select = self._page.locator(select_sel).first
+                if select.count() == 0 or not select.is_visible(timeout=1000):
+                    continue
+                for option in ("GeoTIFF", "GEOTIFF", "Geo Tiff", "GeoTiff"):
+                    try:
+                        select.select_option(label=option)
+                        logger.info("    ✓ GeoTIFF selected via select label")
+                        return True
+                    except Exception:
+                        try:
+                            select.select_option(value=option)
+                            logger.info("    ✓ GeoTIFF selected via select value")
+                            return True
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+
         selectors = [
             ("md-radio-button[value='GeoTIFF']",             "md_radio_geotiff"),
             ("md-radio-button[value='GEOTIFF']",             "md_radio_geotiff_upper"),
@@ -789,11 +827,17 @@ class MosdacBrowser:
             ("input[value*='GeoTIFF' i]",                    "input_geotiff"),
             ("label:has-text('GeoTIFF')",                    "label_geotiff"),
             ("label:has-text('Geo Tiff')",                   "label_geo_tiff"),
+            ("*:has-text('GEOTIFF') input[type='radio']",     "container_radio_geotiff"),
+            ("*:has-text('GeoTIFF') input[type='radio']",     "container_radio_geotiff_mixed"),
             ("[role='radio'][aria-label*='GeoTIFF' i]",      "role_radio_geotiff"),
             # Current portal markup places the text beside an unlabelled
             # native radio input (as shown in its order dialog).
             ("xpath=//*[normalize-space(text())='GEOTIFF']/preceding-sibling::input[@type='radio'][1]", "native_radio_geotiff"),
             ("xpath=//*[normalize-space(text())='GeoTIFF']/preceding-sibling::input[@type='radio'][1]", "native_radio_geotiff_mixed"),
+            ("xpath=//*[contains(normalize-space(.), 'GEOTIFF')]/preceding::input[@type='radio'][1]", "preceding_radio_geotiff"),
+            ("xpath=//*[contains(normalize-space(.), 'GeoTIFF')]/preceding::input[@type='radio'][1]", "preceding_radio_geotiff_mixed"),
+            ("xpath=//*[contains(normalize-space(.), 'GEOTIFF')]/following::input[@type='radio'][1]", "following_radio_geotiff"),
+            ("xpath=//*[contains(normalize-space(.), 'GeoTIFF')]/following::input[@type='radio'][1]", "following_radio_geotiff_mixed"),
         ]
 
         for selector, desc in selectors:
@@ -821,67 +865,123 @@ class MosdacBrowser:
         logger.error("    GeoTIFF output option was not found")
         return False
 
-    def _select_aoi(self) -> bool:
-        """Select the AOI delivery mode for either product."""
+    def _dump_order_form_debug(self, label: str) -> None:
+        """Persist screenshot, HTML, and visible text for MOSDAC form failures."""
+        self._dbg(label)
+        stamp = datetime.now().strftime("%H%M%S")
+        try:
+            html_path = self.debug_dir / f"{label}_{stamp}.html"
+            html_path.write_text(self._page.content(), encoding="utf-8")
+            logger.info("  📄 order form HTML → %s", html_path.name)
+        except Exception as exc:
+            logger.warning("  Order form HTML dump failed: %s", exc)
+        try:
+            text_path = self.debug_dir / f"{label}_{stamp}.txt"
+            text_path.write_text(self._page.locator("body").inner_text(timeout=5000), encoding="utf-8")
+            logger.info("  📄 order form text → %s", text_path.name)
+        except Exception as exc:
+            logger.warning("  Order form text dump failed: %s", exc)
+
+    def _wait_order_modal_ready(self) -> bool:
+        """Wait until the product order dialog has usable format/media controls."""
+        deadline = time.monotonic() + 60
+        last_text = ""
+        while time.monotonic() < deadline:
+            try:
+                body_text = self._page.locator("body").inner_text(timeout=3000)
+                last_text = body_text[:500]
+                lower = body_text.lower()
+                has_format = "format" in lower
+                has_media = "media" in lower and "products only" in lower
+                has_extent = "aoi product" in lower or "full product" in lower
+                still_loading = any(
+                    token in lower
+                    for token in ("loading format", "loading...", "632loading", "please wait")
+                )
+                if has_format and has_media and has_extent and not still_loading:
+                    logger.info("  ✓ Order modal controls are ready")
+                    return True
+            except Exception:
+                pass
+            time.sleep(1)
+
+        logger.error("  Order modal controls did not finish loading; text=%r", last_text)
+        self._dump_order_form_debug("order_modal_not_ready")
+        return False
+
+    def _select_radio_option(self, text: str, desc: str) -> bool:
+        """Select an option by visible label text or its adjacent native radio."""
+        text_expr = text.replace("'", "\\'")
         selectors = [
-            ("md-radio-button:has-text('Area of Interest')", "md_radio_aoi_long"),
-            ("md-radio-button:has-text('AOI')",              "md_radio_aoi"),
-            ("label:has-text('Area of Interest')",           "label_aoi_long"),
-            ("label:has-text('AOI')",                         "label_aoi"),
-            ("input[value='AOI']",                            "input_aoi"),
-            ("input[value*='Area of Interest' i]",            "input_aoi_long"),
-            ("[role='radio'][aria-label*='AOI' i]",           "role_radio_aoi"),
-            # MOSDAC's current UI labels the AOI mode "Browse Images Only".
-            # It opens the spatial/AOI controls in place of the former AOI label.
-            ("label:has-text('Browse Images Only')",          "label_browse_images_aoi"),
-            ("xpath=//*[normalize-space(text())='Browse Images Only']/preceding-sibling::input[@type='radio'][1]", "native_browse_images_aoi"),
+            (f"label:has-text('{text_expr}')", "label"),
+            (f"md-radio-button:has-text('{text_expr}')", "md-radio"),
+            (f"[role='radio'][aria-label*='{text_expr}' i]", "role-radio"),
+            (f"input[type='radio'][value*='{text_expr}' i]", "input-value"),
+            (f"xpath=//*[normalize-space(text())='{text}']/preceding-sibling::input[@type='radio'][1]", "preceding-sibling"),
+            (f"xpath=//*[normalize-space(text())='{text}']/following-sibling::input[@type='radio'][1]", "following-sibling"),
+            (f"xpath=//*[normalize-space(text())='{text}']/preceding::input[@type='radio'][1]", "preceding"),
+            (f"xpath=//*[normalize-space(text())='{text}']/following::input[@type='radio'][1]", "following"),
+            (f"xpath=//*[contains(normalize-space(.), '{text}')]/input[@type='radio'][1]", "container-input"),
         ]
 
-        for selector, desc in selectors:
+        for selector, strategy in selectors:
             try:
                 el = self._page.locator(selector).first
                 if el.count() > 0:
                     el.scroll_into_view_if_needed(timeout=3000)
                     el.wait_for(state="visible", timeout=9000)
-                    el.click(timeout=9000)
+                    try:
+                        el.check(timeout=5000, force=True)
+                    except Exception:
+                        el.click(timeout=9000, force=True)
                     time.sleep(0.8)
-
-                    if (
-                        el.get_attribute("aria-checked") == "true"
-                        or el.get_attribute("ng-checked") == "true"
-                    ):
-                        logger.info(f"    ✓ AOI selected via {desc}")
-                        return True
-
-                    logger.debug(f"    AOI click attempted ({desc})")
+                    logger.info("    ✓ %s selected via %s", desc, strategy)
                     return True
 
             except Exception:
                 continue
 
-        logger.error("    AOI delivery option was not found")
+        logger.error("    %s option was not found", desc)
         return False
 
     def _configure_geotiff_aoi(self) -> bool:
         """Set GeoTIFF output and apply the configured WGS84 AOI bounds."""
-        if not self._select_geotiff_format() or not self._select_aoi():
+        if not self._wait_order_modal_ready():
+            return False
+        if not self._select_geotiff_format():
+            self._dump_order_form_debug("order_no_geotiff")
+            return False
+        if not self._select_radio_option("Products Only", "Products Only media"):
+            self._dump_order_form_debug("order_no_products_only")
+            return False
+        if not self._select_radio_option("AOI Product", "AOI Product extent"):
+            self._dump_order_form_debug("order_no_aoi_product")
             return False
 
         # Selecting AOI can cause Angular to render the coordinate fields.
-        time.sleep(1)
+        time.sleep(2)
         coordinate_selectors = {
             "north": ["input[id*='north' i]", "input[name*='north' i]", "input[placeholder*='north' i]",
+                      "input[id*='lat1' i]", "input[name*='lat1' i]", "input[placeholder*='lat1' i]",
+                      "input[id*='maxlat' i]", "input[name*='maxlat' i]", "input[placeholder*='max lat' i]",
                       "xpath=//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'north')]/following::input[1]"],
             "south": ["input[id*='south' i]", "input[name*='south' i]", "input[placeholder*='south' i]",
+                      "input[id*='lat2' i]", "input[name*='lat2' i]", "input[placeholder*='lat2' i]",
+                      "input[id*='minlat' i]", "input[name*='minlat' i]", "input[placeholder*='min lat' i]",
                       "xpath=//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'south')]/following::input[1]"],
             "west":  ["input[id*='west' i]", "input[name*='west' i]", "input[placeholder*='west' i]",
+                      "input[id*='lon1' i]", "input[name*='lon1' i]", "input[placeholder*='lon1' i]",
+                      "input[id*='minlon' i]", "input[name*='minlon' i]", "input[placeholder*='min lon' i]",
                       "xpath=//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'west')]/following::input[1]"],
             "east":  ["input[id*='east' i]", "input[name*='east' i]", "input[placeholder*='east' i]",
+                      "input[id*='lon2' i]", "input[name*='lon2' i]", "input[placeholder*='lon2' i]",
+                      "input[id*='maxlon' i]", "input[name*='maxlon' i]", "input[placeholder*='max lon' i]",
                       "xpath=//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'east')]/following::input[1]"],
         }
         for direction, selectors in coordinate_selectors.items():
             if not self._fill(selectors, BBOX[direction]):
                 logger.error("    AOI %s coordinate field was not found", direction)
+                self._dump_order_form_debug(f"order_no_aoi_{direction}")
                 return False
         logger.info("    ✓ AOI bounds filled: N=%s S=%s W=%s E=%s", BBOX["north"], BBOX["south"], BBOX["west"], BBOX["east"])
 
@@ -1108,7 +1208,7 @@ class MosdacBrowser:
             start_date.strftime("%Y-%m-%d"),
             start_date.strftime("%d-%m-%Y"),
         )
-        creation_deadline = time.monotonic() + 120
+        creation_deadline = time.monotonic() + 45
         while time.monotonic() < creation_deadline:
             self._goto(MOSDAC_UOPS_URL + "#/MyOrder", wait=2)
             page_text = self._page.content().upper()
@@ -1124,7 +1224,7 @@ class MosdacBrowser:
             time.sleep(3)
 
         self._dbg(f"order_not_created_{product}")
-        logger.error("MOSDAC did not create an order row within 120 seconds")
+        logger.error("MOSDAC did not create an order row within 45 seconds")
         return False
 
     # ── Read row status (used by agent + Scheduler's OrderPoller) ─────────────
@@ -1325,6 +1425,14 @@ class MosdacAgent:
         self._browser   = MosdacBrowser(headless=headless)
         self._started   = False
         self._logged_in = False
+        self.last_order_summary: Dict[str, object] = {
+            "required": False,
+            "attempted": 0,
+            "placed": 0,
+            "ready": 0,
+            "keys": [],
+            "failures": [],
+        }
 
         for product in (Product.PET, Product.RAIN):
             Product.raw_dir(product).mkdir(parents=True, exist_ok=True)
@@ -1404,6 +1512,14 @@ class MosdacAgent:
         of these keys turn out to match a real folder.
         """
         today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+        self.last_order_summary = {
+            "required": False,
+            "attempted": 0,
+            "placed": 0,
+            "ready": 0,
+            "keys": [],
+            "failures": [],
+        }
         if today.month not in RABI_MONTHS:
             logger.info("Outside Rabi season – no orders placed")
             return []
@@ -1435,6 +1551,7 @@ class MosdacAgent:
         if not any(missing.values()):
             logger.info("No missing MOSDAC data – no orders needed")
             return []
+        self.last_order_summary["required"] = True
 
         # ── Place orders ──────────────────────────────────────────────────────
         # NOTE: each product/date is handled in its own try/except below.
@@ -1450,21 +1567,30 @@ class MosdacAgent:
 
         if not self._ensure_logged_in():
             logger.error("Order placement failed: cannot log in to MOSDAC")
+            self.last_order_summary["failures"].append("cannot log in to MOSDAC")
             return []
 
         for product in (Product.PET, Product.RAIN):
             for d in missing[product]:
+                self.last_order_summary["attempted"] += 1
                 try:
                     if self._browser.place_order(product, d, d):
                         placed_orders.append((product, d))
+                        self.last_order_summary["placed"] += 1
                         logger.info(
                             f"Order placed for {product} on {d.date()}"
                         )
                     else:
+                        self.last_order_summary["failures"].append(
+                            f"{product} {d.date()} placement failed"
+                        )
                         logger.error(
                             f"Order placement failed for {product} on {d.date()}"
                         )
                 except Exception as exc:
+                    self.last_order_summary["failures"].append(
+                        f"{product} {d.date()} placement raised: {exc}"
+                    )
                     logger.error(
                         "Order placement raised for %s on %s: %s",
                         product, d.date(), exc, exc_info=True,
@@ -1473,16 +1599,24 @@ class MosdacAgent:
         for product, date in placed_orders:
             try:
                 if not self._browser.wait_for_order_ready(product, date):
+                    self.last_order_summary["failures"].append(
+                        f"{product} {date.date()} did not become READY"
+                    )
                     logger.error(
                         "Order did not become READY for %s on %s",
                         product.upper(), date.date(),
                     )
                     continue
+                self.last_order_summary["ready"] += 1
                 order_key = self._browser.get_ready_order_key(product, date)
                 if order_key:
                     order_keys.append(order_key)
+                    self.last_order_summary["keys"] = order_keys.copy()
                     logger.info("Ready MOSDAC order: %s", order_key)
                 else:
+                    self.last_order_summary["failures"].append(
+                        f"{product} {date.date()} ready but no folder key"
+                    )
                     logger.error(
                         "Ready %s order for %s has no folder key in MyOrder; "
                         "Stage 3 cannot safely select an SFTP folder.",
@@ -1491,11 +1625,15 @@ class MosdacAgent:
             except Exception as exc:
                 # Isolated to this (product, date) pair — any keys already
                 # collected for other orders above are preserved.
+                self.last_order_summary["failures"].append(
+                    f"{product} {date.date()} polling/key lookup raised: {exc}"
+                )
                 logger.error(
                     "Polling/key-lookup raised for %s on %s: %s",
                     product, date.date(), exc, exc_info=True,
                 )
 
+        self.last_order_summary["keys"] = order_keys.copy()
         return order_keys
 
     def download_dates(self, missing_dates: Dict[str, List[datetime]]) -> Dict[str, int]:

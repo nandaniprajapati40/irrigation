@@ -9,6 +9,7 @@ from scipy.ndimage import zoom
 from typing import Dict, List, Optional, Tuple
 
 from config import STUDY_AREA, WHEAT_PARAMS, DIRECTORIES
+from season_retention import is_retained_date
 from mongo import (
     save_processed_data,
     step_already_processed,
@@ -57,6 +58,13 @@ class DataProcessor:
         self.wheat_params = WHEAT_PARAMS
         self.dirs         = DIRECTORIES
         self._mask_cache: Dict = {}
+
+    @staticmethod
+    def _require_retained_date(date: datetime) -> None:
+        if not is_retained_date(date):
+            raise ValueError(
+                f"{date.date()} is outside the rolling five-season retention window"
+            )
 
     # ── GeoTIFF writer ────────────────────────────────────────────────────
 
@@ -186,13 +194,6 @@ class DataProcessor:
         file_list: List[Dict],
         max_delta_days: int = 2,
     ) -> Optional[Dict]:
-        """
-        Find the file whose date is closest to target_date within ±max_delta_days.
-        Used to match a daily INSAT PET file to a Sentinel acquisition date.
-
-        Thesis §5.4: "INSAT 3D daily reference evapotranspiration data…
-        multiplied with Kc maps of available dates."
-        """
         candidates = [
             f for f in file_list
             if abs((f["date"] - target_date).days) <= max_delta_days
@@ -209,16 +210,6 @@ class DataProcessor:
         pet_files: List[Dict],
         sentinel_profile: Dict,
     ) -> Optional[Dict]:
-        """
-        Fetch the INSAT daily PET raster nearest to sentinel_date (±2 days).
-
-        Returns the reprojected array in mm day⁻¹, ready for multiplication
-        with the Kc raster.
-
-        Thesis §5.4 (p. 51): "INSAT 3D daily reference evapotranspiration
-        data of 4 km were resampled and used to multiply with Kc maps of
-        available dates and generated crop evapotranspiration maps."
-        """
         item = self._find_nearest_file(sentinel_date, pet_files)
         if item is None:
             logger.warning(
@@ -250,29 +241,11 @@ class DataProcessor:
         pet_files: List[Dict],
         sentinel_profile: Dict,
     ) -> Dict:
-        """
-        Sum daily INSAT PET over (prev_date, current_date] → mm per interval.
-
-        Used by the SARIMAX CWR model trainer (models.py) as the exogenous
-        PET variable (interval-sum PET correlates better with CWR than
-        single-day PET for model training on Sentinel cadence).
-
-        Also used as a fallback if select_pet_daily() finds no nearby file.
-        Saves interval stats to MongoDB (pet_stats collection).
-        """
         selected = self._find_files_in_interval(prev_date, current_date, pet_files)
         n_days   = len(selected)
         h = sentinel_profile["height"]
         w = sentinel_profile["width"]
 
-        # FIX (CWR underestimation bug, part 2): load_insat_raster() can now
-        # return NaN for genuinely-missing pixels (see FIX #1). A naive
-        # `total = zeros(); total += arr` would let a single missing day
-        # poison the whole-interval sum at that pixel (x + NaN = NaN for the
-        # rest of the loop). Stack + nansum instead, so each pixel's total is
-        # the sum of whichever days actually had data, and a pixel is only
-        # marked NaN (excluded downstream) if it had NO valid day at all in
-        # the interval.
         daily_arrays = [
             self.load_insat_raster(item["filepath"], sentinel_profile)
             for item in selected
@@ -310,14 +283,6 @@ class DataProcessor:
 
     
     def _load_insat_raster_native(self, filepath: Path) -> Tuple[np.ndarray, Dict]:
-        """
-        Read an INSAT raster in its NATIVE resolution/CRS (no reprojection).
-
-        Used so that multiple daily rasters covering the same interval can be
-        summed cheaply in native (coarse) resolution BEFORE the one expensive
-        reprojection onto the Sentinel grid, instead of reprojecting every
-        single day individually.
-        """
         with rasterio.open(filepath) as src:
             data       = src.read(1).astype("float32")
             src_nodata = src.nodata if src.nodata is not None else INSAT_NODATA
@@ -364,22 +329,6 @@ class DataProcessor:
         rain_files: List[Dict],
         sentinel_profile: Dict,
     ) -> Dict:
-        """
-        Sum daily INSAT rainfall over (prev_date, current_date] and reproject
-        the result onto the Sentinel grid ONCE per interval.
-
-        PERFORMANCE FIX: the previous implementation reprojected every single
-        daily rain raster individually (N warps for an N-day interval) and
-        summed afterwards. Bilinear reprojection is a linear operator, so
-        summing in native (coarse) resolution first and reprojecting once
-        gives the same result numerically, but needs only 1 warp per interval
-        instead of N — a ~5x reduction in the dominant cost for typical
-        5-day Sentinel cadence.
-
-        Falls back to the old per-file reprojection path if the daily rain
-        files in an interval don't all share the same native grid (rare —
-        e.g. a sensor/product change mid-record).
-        """
         selected = self._find_files_in_interval(prev_date, current_date, rain_files)
         n_days = len(selected)
 
@@ -465,29 +414,10 @@ class DataProcessor:
             f"{n_days} days | sum={pixel_stats['sum']:.1f} mm"
         )
         return {"data": total, "date": current_date, "stats": pixel_stats, "n_days": n_days}
-    # ═══════════════════════════════════════════════════════════════════════
-    # STEP 1 — SAVI  (thesis Eq. 3, §4.3)
-    # ═══════════════════════════════════════════════════════════════════════
 
     def calculate_savi(self, sentinel2_data: Dict) -> Dict:
-        """
-        Compute SAVI from Sentinel-2A harmonised surface reflectance.
-
-        SAVI = (1 + L) × (ρ_NIR − ρ_Red) / (ρ_NIR + ρ_Red + L)
-        L = 0.5  (optimal for arid zones and sparse canopy, Huete 1988)
-
-        Bands used (Sentinel-2 L2A / harmonised product):
-            Band 4 (Red):  670 nm
-            Band 8 (NIR):  842 nm
-        Scale factor: ×0.0001 (from digital number to surface reflectance)
-
-        Thesis §5.3: SAVI values range from ~0.05–0.10 at germination
-        (Nov) to ~0.50–0.60 at heading/flowering (Feb–Mar), then decline
-        to ~0.15–0.25 at maturity (Apr).
-
-        Output: SAVI raster in [-1, 1], NaN outside the wheat mask.
-        """
         date     = sentinel2_data["date"]
+        self._require_retained_date(date)
         date_str = date.strftime("%Y%m%d")
         out_path = self.dirs["processed"]["savi"] / f"savi_{date_str}.tif"
 
@@ -535,38 +465,11 @@ class DataProcessor:
                     f"(range [{stats['min']:.3f}, {stats['max']:.3f}])")
         return {"data": savi, "stats": stats, "filepath": out_path, "profile": profile}
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # STEP 2 — Kc  (thesis Table 9, §5.3)
-    # ═══════════════════════════════════════════════════════════════════════
-
     def calculate_kc(self, savi_data: Dict) -> Dict:
-        """
-        Derive the crop coefficient from SAVI using the best-fit linear
-        regression calibrated in thesis Table 9:
-
-            Kc = 1.2088 × SAVI + 0.5378      R² = 0.882
-
-        This is the "SAVI-FAO Moving-Averaged Kc" equation — best among
-        six Kc parameterisations tested (NDVI/SAVI × FAO Kc / Moving-Avg
-        Kc / Instrumental Kc).
-
-        The slope (1.2088) and intercept (0.5378) are stored in config.py
-        (WHEAT_PARAMS["savi_kc"]["slope"] and ["intercept"]).
-
-        Kc is clipped to [0.30, 1.15]:
-            0.30 = FAO-56 Kc_ini for spring wheat  (germination stage)
-            1.15 = FAO-56 Kc_mid for spring wheat  (heading/flowering stage)
-        This prevents physically unrealistic values from noisy SAVI pixels.
-
-        Thesis §5.3 observations:
-          - Kc ~0.30–0.40  in Nov–Dec (initial / germination stage)
-          - Kc ~0.70–0.90  in Jan (development / tillering stage)
-          - Kc ~1.00–1.15  in Feb–Mar (mid-season / heading/flowering stage)
-          - Kc ~0.40–0.60  in Apr (late-season / maturity stage)
-        """
         filepath = savi_data["filepath"]
         date_str = Path(filepath).stem.split("_")[-1]
         date_obj = datetime.strptime(date_str, "%Y%m%d")
+        self._require_retained_date(date_obj)
         out_path = self.dirs["processed"]["kc"] / f"kc_{date_str}.tif"
 
         if step_already_processed("kc", date_obj):
@@ -604,39 +507,11 @@ class DataProcessor:
                     f"(range [{stats['min']:.3f}, {stats['max']:.3f}])")
         return {"data": kc, "stats": stats, "filepath": out_path, "profile": profile}
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # STEP 3 — ETc = Kc × ET₀  (thesis Eq. 4, §4.4)  [units: mm day⁻¹]
-    # ═══════════════════════════════════════════════════════════════════════
-
     def calculate_etc(self, kc_data: Dict, pet_data: Dict) -> Dict:
-        """
-        Compute crop evapotranspiration per thesis Eq. 4:
-
-            ETc = Kc × ET₀                        [mm day⁻¹]
-
-        where:
-          Kc  = crop coefficient (dimensionless) from Step 2
-          ET₀ = INSAT-3DR daily potential evapotranspiration (mm day⁻¹)
-                obtained from select_pet_daily() for the Sentinel date
-
-        Thesis §5.4 (p. 51): "INSAT 3D daily reference evapotranspiration
-        data of 4 km were resampled and used to multiply with Kc maps of
-        available dates."
-
-        Observed seasonal range (thesis §5.4):
-          Nov–Dec: ETc = 2.0–3.7 mm/day  (germination / tillering)
-          Jan:     ETc = 3.1–4.5 mm/day  (jointing)
-          Feb:     ETc = 5.5–6.5 mm/day  ← PEAK (heading / flowering)
-          Mar:     ETc = 4.5–6.6 mm/day  (grain filling)
-          Apr:     ETc = 4.0–7.0 mm/day  (maturity / harvest)
-
-        pet_data: output of select_pet_daily() — must contain 'data' array
-                  in mm day⁻¹ and 'n_days' (= 1 for daily, or interval count
-                  when falling back to interval-sum divided by interval_days).
-        """
         filepath = kc_data["filepath"]
         date_str = Path(filepath).stem.split("_")[-1]
         date_obj = datetime.strptime(date_str, "%Y%m%d")
+        self._require_retained_date(date_obj)
         out_path = self.dirs["processed"]["ETc"] / f"etc_{date_str}.tif"
 
         if step_already_processed("etc", date_obj):
@@ -648,27 +523,18 @@ class DataProcessor:
             nd      = src.nodata
             kc      = np.where(kc == nd, np.nan, kc) if nd is not None else kc
             profile = src.profile.copy()
-
-        # If pet_data was built from select_pet_interval_sum, divide by n_days
-        # to convert mm/interval → mm/day before multiplication.
         n_days = pet_data.get("n_days", 1)
         eto = pet_data["data"].astype("float32")
         if n_days > 1:
             eto = eto / float(n_days)
             logger.debug(f"ETc: converted interval PET → daily ({n_days} days)")
-
-        # Resize if INSAT grid doesn't exactly match Kc (shouldn't happen
-        # after load_insat_raster, but safeguard).
         if eto.shape != kc.shape:
             eto = zoom(
                 eto,
                 (kc.shape[0] / eto.shape[0], kc.shape[1] / eto.shape[1]),
                 order=1,
             )
-
-        # ETc = Kc × ET₀  [mm day⁻¹]  (thesis Eq. 4)
         etc = np.where(np.isnan(kc), np.nan, np.maximum(kc * eto, 0.0))
-
         wheat_mask       = self.load_wheat_mask(date_obj, kc.shape, profile)
         etc[~wheat_mask] = np.nan
 
@@ -688,31 +554,10 @@ class DataProcessor:
             f"(range [{stats['min']:.2f}, {stats['max']:.2f}])"
         )
         return {"data": etc, "stats": stats, "filepath": out_path, "profile": profile}
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # STEP 4 — CWR = ETc  (thesis §4.4)  [units: mm day⁻¹]
-    # ═══════════════════════════════════════════════════════════════════════
-
     def calculate_cwr(self, etc_tif: Path) -> Dict:
-        """
-        Crop Water Requirement = crop evapotranspiration.
-
-        Thesis §4.4 (p. 35): "CWR is the volume of water required to
-        replenish ET loss from a cropped area."
-
-        CWR = ETc   [mm day⁻¹]
-
-        Seasonal CWR is obtained externally by time-series integration:
-            CWR_seasonal = Σ (CWR_i × Δt_i)
-        where Δt_i = days between consecutive Sentinel acquisition dates.
-
-        Observed seasonal totals (thesis §5.4):
-            2022-23: 395–680 mm/season
-            2023-24: 495–720 mm/season
-        These are consistent with ETc × ~150-season-days.
-        """
         date_str = etc_tif.stem.split("_")[-1]
         date_obj = datetime.strptime(date_str, "%Y%m%d")
+        self._require_retained_date(date_obj)
         out_path = self.dirs["processed"]["cwr"] / f"cwr_{date_str}.tif"
 
         if step_already_processed("cwr", date_obj):
@@ -744,11 +589,6 @@ class DataProcessor:
                             raster_path=str(out_path), metadata=stats)
         logger.info(f"CWR {out_path.name} | mean={stats['mean']:.2f} mm/day")
         return {"data": cwr, "stats": stats, "filepath": out_path, "profile": profile}
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # STEP 5 — IWR = max(CWR − Pe, 0)  (thesis §4.5/§5.5)  [mm day⁻¹]
-    # ═══════════════════════════════════════════════════════════════════════
-
     def calculate_iwr(
         self,
         cwr_tif: Path,
@@ -756,6 +596,7 @@ class DataProcessor:
     ) -> Dict:
         date_str = cwr_tif.stem.split("_")[-1]
         date_obj = datetime.strptime(date_str, "%Y%m%d")
+        self._require_retained_date(date_obj)
         out_path = self.dirs["processed"]["iwr"] / f"iwr_{date_str}.tif"
     
         if step_already_processed("iwr", date_obj):
@@ -780,11 +621,6 @@ class DataProcessor:
                  cwr.shape[1] / rain_interval.shape[1]),
                 order=1,
             )
-    
-        # FAO USDA-SCS effective rainfall on interval totals (thesis §4.5).
-        # Threshold is scaled to the interval duration so the monthly-calibrated
-        # formula applies correctly at the ~5-day Sentinel cadence.
-        # See module-level compute_effective_rainfall() for scalar equivalent.
         _period_factor = float(n_days) / 30.0
         _pe_threshold = 75.0 * _period_factor
         eff_rain_interval = np.where(
@@ -814,8 +650,6 @@ class DataProcessor:
     
         wheat_rain = rain_interval[wheat_mask]
         wheat_eff  = eff_rain_daily[wheat_mask]
-        
-        # FIX: Check if there are any valid pixels before computing stats
         valid_cwr = cwr[~np.isnan(cwr)]
         valid_iwr = iwr[~np.isnan(iwr)]
         
@@ -864,11 +698,6 @@ class DataProcessor:
             f"IWR≤CWR={stats.get('iwr_le_cwr', True)}"
         )
         return {"data": iwr, "stats": stats, "filepath": out_path, "profile": profile}
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # Seasonal integration helper
-    # ═══════════════════════════════════════════════════════════════════════
-
     @staticmethod
     def compute_seasonal_total(
         raster_means: List[float],

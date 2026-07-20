@@ -82,6 +82,7 @@ from shapely.ops import transform as shapely_transform
 from config import STUDY_AREA, DIRECTORIES
 from mongo import is_sentinel_downloaded, mark_sentinel_downloaded
 from ee_init import init_ee
+from season_retention import is_retained_date, oldest_retained_season_start
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,9 @@ def is_rabi_month(date):
 
 
 def get_all_rabi_seasons(from_year=HISTORY_START_YEAR):
-    today, seasons, year = datetime.today(), [], from_year
+    today = datetime.today()
+    earliest_allowed_year = oldest_retained_season_start(today).year
+    seasons, year = [], max(from_year, earliest_allowed_year)
     while True:
         s = datetime(year, 11, 1)
         e = datetime(year + 1, 4, 30)
@@ -651,6 +654,9 @@ class SatelliteDownloader:
         filename = f"S2_{date_str}"
         out_path = self.out_dir / f"{filename}.tif"
 
+        if not is_retained_date(date):
+            return {"date": date, "filepath": out_path, "skipped": True}
+
         if is_sentinel_downloaded(date):
             logger.debug(f"{filename}: already in MongoDB — skipping")
             return {"date": date, "filepath": out_path, "skipped": True}
@@ -906,12 +912,6 @@ def get_sha256(file_path):
 # ── CLI ────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
-    import logging as _logging
-
-    _logging.basicConfig(
-        level=_logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s -- %(message)s",
-    )
 
     p = argparse.ArgumentParser(
         description="Sentinel-2 downloader — real overpass dates only"

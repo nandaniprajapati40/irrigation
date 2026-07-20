@@ -10,5 +10,5 @@
   <dateCreated>2026-06-07 07:51:34.737 UTC</dateCreated>
   <dateModified>2026-06-07 07:51:34.745 UTC</dateModified>
   <disableOnConnFailure>false</disableOnConnFailure>
-  <url>file:/app/data/export/geoserver/history/cwr/cwr_8.tif</url>
+  <url>file:/home/aman/web_world/Web_Project/irr/irrigation/backend/data/export/geoserver/history/cwr/cwr_8.tif</url>
 </coverageStore>

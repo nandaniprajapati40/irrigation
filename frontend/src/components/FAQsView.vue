@@ -162,9 +162,7 @@ const chatOpen       = ref(false)
 const fabChatSessionId = `fab-session-${Date.now()}`
 
 // ── API base — empty string = same origin, nginx proxies /api/* → backend:8000
-const apiBase = (
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE) || ''
-)
+const apiBase = (process.env.VUE_APP_API_BASE || '').replace(/\/$/, '')
 
 const chatConnected = ref(true)
 const mapLat        = ref(null)

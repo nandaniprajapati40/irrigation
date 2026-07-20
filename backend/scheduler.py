@@ -134,11 +134,19 @@ def _stage2_mosdac_order() -> Optional[List[str]]:
         agent = MosdacAgent(headless=True)
 
         order_keys = agent.place_orders_and_return_keys()
+        summary = getattr(agent, "last_order_summary", {}) or {}
 
         if order_keys:
             logger.info(f"  Stage 2 ✓ — orders placed: {order_keys}")
+        elif summary.get("required"):
+            logger.error(
+                "  Stage 2 FAILED — MOSDAC data was missing but no ready "
+                "order key was confirmed. summary=%s",
+                summary,
+            )
+            return None
         else:
-            logger.info("  Stage 2 ✓ — no orders needed or placed")
+            logger.info("  Stage 2 ✓ — no MOSDAC orders needed")
 
         return order_keys
     except Exception as e:
@@ -159,17 +167,12 @@ def _stage3_mosdac_download(order_keys: List[str] = None) -> bool:
     """
     logger.info("▶ Stage 3 — MOSDAC download")
 
-    if not order_keys:
-        # No specific order key came out of Stage 2 (e.g. the browser couldn't
-        # scrape an "Order ID" from the MyOrder page, or Stage 2 decided no
-        # new order was needed). This is NOT fatal: MosdacDownloader falls
-        # back to auto-discovering the latest PET/RAIN order folders directly
-        # from the SFTP /Order listing (see _discover_orders in
-        # mosdac_downloader.py), the same way the CLI's `download_day()` does.
-        # So we still attempt the download instead of skipping outright.
+    if order_keys:
+        logger.info("  Stage 3 — using Stage 2 order keys: %s", order_keys)
+    else:
         logger.info(
             "  Stage 3 — No order_keys from Stage 2; "
-            "falling back to auto-discovery of latest SFTP order folders"
+            "using unrestricted latest-order discovery on MOSDAC SFTP"
         )
 
     try:
@@ -450,8 +453,8 @@ def start_scheduler(
     scheduler.add_job(
         func               = run_nightly_pipeline,
         trigger            = "cron",
-        hour               = 22,
-        minute             = 48,
+        hour               = 21,
+        minute             = 20,
         kwargs             = {
             "generate_callback":     generate_callback,
             "single_image_callback": single_image_pipeline_callback,

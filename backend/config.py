@@ -1,8 +1,12 @@
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# The service intentionally does not emit or persist application logs.
+logging.disable(logging.CRITICAL)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -209,7 +213,6 @@ DIRECTORIES = {
         "geoserver": BASE_DIR / "data" / "export" / "geoserver",
     },
     "models": BASE_DIR / "data" / "models",
-    "logs":   BASE_DIR / "data" / "logs",
 }
 
 SENTINEL2_BAND_INDICES = {

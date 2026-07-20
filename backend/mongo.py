@@ -26,6 +26,7 @@ import logging
 
 from pymongo import MongoClient, ASCENDING, errors
 from config import MONGODB
+from season_retention import out_of_retention_query
 
 logger = logging.getLogger("MONGO")
 
@@ -306,81 +307,6 @@ def save_processed_data(
     except Exception as e:
         logger.error(f"save_processed_data error: {e}")
 
-"""
-mongo_additions.py  (updated)
-─────────────────────────────────────────────────────────────────────────────
-Paste these additions into your existing mongo.py.
-
-Two-collection design per product (why):
-  ┌──────────────────┬──────────────────────────────────────────────────────┐
-  │ pet_col          │ One record per downloaded daily INSAT file            │
-  │                  │ image_date = calendar date of the file                │
-  │                  │ Purpose: idempotency — never re-download              │
-  ├──────────────────┼──────────────────────────────────────────────────────┤
-  │ pet_stats_col    │ One record per Sentinel overpass date                 │
-  │                  │ sentinel_date = Sentinel scene date                   │
-  │                  │ Stores: interval_start, interval_end, n_days,         │
-  │                  │   mean/min/max/sum over the 5-day window (mm)         │
-  │                  │ Purpose: traceability + SARIMAX training input        │
-  └──────────────────┴──────────────────────────────────────────────────────┘
-Same structure for rain_col / rain_stats_col.
-"""
-
-# ═══════════════════════════════════════════════════════════════════════════
-# SECTION A — paste after:  iwr_col = _db["iwr_data"]
-# ═══════════════════════════════════════════════════════════════════════════
-
-"""
-# Daily INSAT download tracking (idempotency)
-pet_col        = _db["pet_data"]       # one doc per downloaded daily PET file
-rain_col       = _db["rain_data"]      # one doc per downloaded daily rain file
-
-# Interval aggregates tied to each Sentinel scene
-pet_stats_col  = _db["pet_stats"]      # 5-day summed PET per Sentinel date
-rain_stats_col = _db["rain_stats"]     # 5-day summed rain per Sentinel date
-"""
-
-# ═══════════════════════════════════════════════════════════════════════════
-# SECTION B — update _STEP_COLLECTIONS dict
-# ═══════════════════════════════════════════════════════════════════════════
-
-"""
-_STEP_COLLECTIONS: Dict[str, Any] = {
-    "sentinel":   sentinel_col,
-    "savi":       savi_col,
-    "kc":         kc_col,
-    "etc":        etc_col,
-    "cwr":        cwr_col,
-    "iwr":        iwr_col,
-    "pet":        pet_col,
-    "rain":       rain_col,
-    "pet_stats":  pet_stats_col,
-    "rain_stats": rain_stats_col,
-}
-"""
-
-# ═══════════════════════════════════════════════════════════════════════════
-# SECTION C — inside _ensure_indexes(), add after the iwr index block
-# ═══════════════════════════════════════════════════════════════════════════
-
-"""
-    # Daily download collections — unique per calendar date
-    for col in (pet_col, rain_col):
-        col.create_index(
-            [("image_date", ASCENDING)],
-            unique=True,
-            name="idx_image_date_unique",
-        )
-
-    # Interval stats — unique per Sentinel overpass date
-    for col in (pet_stats_col, rain_stats_col):
-        col.create_index(
-            [("sentinel_date", ASCENDING)],
-            unique=True,
-            name="idx_sentinel_date_unique",
-        )
-"""
-
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION D — paste at the bottom of mongo.py
 # ═══════════════════════════════════════════════════════════════════════════
@@ -416,27 +342,6 @@ def save_pet_interval_stats(
     n_days: int,
     pixel_stats: dict,
 ) -> bool:
-    """
-    Store 5-day aggregated PET statistics for a Sentinel scene.
-    Called from processor.select_pet_sum() after computing the interval total.
-
-    pixel_stats keys expected:  sum, mean, min, max  (all in mm)
-
-    Example document stored in pet_stats:
-    {
-        sentinel_date:   ISODate("2025-01-07"),
-        interval_start:  ISODate("2025-01-02"),
-        interval_end:    ISODate("2025-01-07"),
-        n_days:          5,
-        sum_mm:          12.4,        <- total ETo over interval (feed to ETc)
-        mean_mm_per_day: 2.48,        <- average daily ETo
-        mean_mm:         12.4,        <- same as sum for the interval mean pixel
-        min_mm:          0.1,         <- spatial minimum across wheat pixels
-        max_mm:          4.2,         <- spatial maximum
-        units:           "mm_per_interval",
-        updated_at:      ISODate(...)
-    }
-    """
     try:
         doc = {
             "sentinel_date":   _day(sentinel_date),
@@ -473,26 +378,6 @@ def save_rain_interval_stats(
     n_days: int,
     pixel_stats: dict,
 ) -> bool:
-    """
-    Store 5-day aggregated rainfall statistics for a Sentinel scene.
-    Called from processor.select_rainfall_sum().
-
-    Example document stored in rain_stats:
-    {
-        sentinel_date:    ISODate("2025-01-07"),
-        interval_start:   ISODate("2025-01-02"),
-        interval_end:     ISODate("2025-01-07"),
-        n_days:           5,
-        sum_mm:           8.3,         <- total rainfall (feed to IWR)
-        mean_mm_per_day:  1.66,
-        mean_mm:          8.3,
-        min_mm:           0.0,
-        max_mm:           6.1,
-        eff_rain_sum_mm:  null,        <- filled in by calculate_iwr()
-        units:            "mm_per_interval",
-        updated_at:       ISODate(...)
-    }
-    """
     try:
         doc = {
             "sentinel_date":   _day(sentinel_date),
@@ -583,7 +468,37 @@ def get_all_rain_stats(season_start, season_end) -> list:
         )
     )
 
+"""
 
+    collections = (
+        ("sentinel", sentinel_col, "image_date"),
+        ("savi", savi_col, "image_date"),
+        ("kc", kc_col, "image_date"),
+        ("etc", etc_col, "image_date"),
+        ("cwr", cwr_col, "image_date"),
+        ("iwr", iwr_col, "image_date"),
+        ("pet", pet_col, "image_date"),
+        ("rain", rain_col, "image_date"),
+        ("pet_stats", pet_stats_col, "sentinel_date"),
+        ("rain_stats", rain_stats_col, "sentinel_date"),
+        ("forecast", forecast_col, "forecast_date"),
+        ("processed", processed_collection, "date"),
+    )
+
+    result: Dict[str, int] = {"removed": 0, "errors": 0}
+    for name, collection, field in collections:
+        try:
+            deleted = collection.delete_many(
+                out_of_retention_query(field, now=now)
+            ).deleted_count
+            result[name] = int(deleted)
+            result["removed"] += int(deleted)
+        except Exception:
+            result[name] = 0
+            result["errors"] += 1
+    return result
+
+"""
 # ── Utility ────────────────────────────────────────────────────────────────
 
 def count_documents(collection) -> int:

@@ -27,9 +27,15 @@ from shapely.geometry import mapping, shape
 
 try:
     import pysftp
-    SFTP_AVAILABLE = True
 except ImportError:
-    SFTP_AVAILABLE = False
+    pysftp = None
+
+try:
+    import paramiko
+except ImportError:
+    paramiko = None
+
+SFTP_AVAILABLE = bool(pysftp or paramiko)
 
 try:
     from mongo import is_pet_downloaded, is_rain_downloaded, pet_col, rain_col
@@ -126,7 +132,12 @@ def check_boundary() -> None:
 
 
 def _discover_orders(sftp, order_keys: Optional[List[str]] = None) -> Dict:
-    """Find GeoTIFF order folders, optionally restricted to scheduler order keys."""
+    """Find the newest delivered PET and rainfall GeoTIFFs on MOSDAC SFTP.
+
+    Folder names and modification times do not reliably describe the data
+    date: a delivery folder can contain several days.  The date embedded in
+    the GeoTIFF filename is therefore the source of truth.
+    """
     try:
         entries = sftp.listdir_attr("/Order")
     except Exception as exc:
@@ -163,69 +174,58 @@ def _discover_orders(sftp, order_keys: Optional[List[str]] = None) -> Dict:
             folders = all_dirs
     folders.sort(key=lambda entry: (entry.st_mtime or 0), reverse=True)
     result: Dict[str, Optional[object]] = {
-        "pet_order": None, "rain_order": None, "pet_max_date": None, "rain_max_date": None,
+        "pet_order": None, "rain_order": None,
+        "pet_max_date": None, "rain_max_date": None,
+        # The exact selected remote file avoids a second lookup selecting a
+        # different date from an order that contains multiple files.
+        "pet_filename": None, "rain_filename": None,
     }
     for entry in folders:
-        # if result["pet_order"] and result["rain_order"]:
-        #     break
         try:
-            files = [name for name in sftp.listdir(f"/Order/{entry.filename}") if name.lower().endswith((".tif", ".tiff"))]
+            attrs = sftp.listdir_attr(f"/Order/{entry.filename}")
         except Exception as exc:
             logger.debug("[ORDERS] Cannot list %s: %s", entry.filename, exc)
             continue
         for product, marker in (("pet", "L3C_PET"), ("rain", "L3G_IMR")):
-            key = f"{product}_order"
-            # matched = [name for name in files if marker in name.upper()]
-
-            matched = []
-
-            for attr in sftp.listdir_attr(f"/Order/{entry.filename}"):
-
-                if not attr.filename.lower().endswith(".tif"):
+            candidates = []
+            for attr in attrs:
+                filename = attr.filename
+                if not filename.lower().endswith((".tif", ".tiff")):
                     continue
-
-                if marker not in attr.filename.upper():
+                if marker not in filename.upper():
                     continue
-
-                # Ignore incomplete uploads
-                if attr.st_size < 500000:   # 500 KB threshold
-                    logger.warning(
-                        "[ORDERS] Ignoring tiny file %s (%d bytes)",
-                        attr.filename,
-                        attr.st_size,
-                    )
+                # The portal currently reports valid AOI products around a
+                # few KB.  Do not impose an arbitrary minimum size here;
+                # _download_geotiff verifies the actual GeoTIFF after copy.
+                if attr.st_size is not None and attr.st_size <= 0:
+                    logger.warning("[ORDERS] Ignoring empty file %s in %s", filename, entry.filename)
                     continue
+                file_date = _parse_date_from_filename(filename)
+                if not file_date:
+                    logger.debug("[ORDERS] Ignoring %s: unrecognised date", filename)
+                    continue
+                candidates.append((file_date, filename))
 
-                matched.append(attr.filename)
-            if matched:
-                dates = [
-                    d for f in matched
-                    if (d := _parse_date_from_filename(f))
-                ]
+            if not candidates:
+                continue
 
-                newest = max(dates) if dates else None
-
-                if (
-                    result[f"{product}_max_date"] is None
-                    or (
-                        newest
-                        and newest >= result[f"{product}_max_date"]
-                    )
-                ):
-                    result[key] = entry.filename
-                    result[f"{product}_max_date"] = newest
-
-                    logger.info(
-                        "[LATEST %s] folder=%s date=%s",
-                        product.upper(),
-                        entry.filename,
-                        newest,
-                    )
-            # if matched and not result[key]:
-            #     dates = [date for name in matched if (date := _parse_date_from_filename(name))]
-            #     result[key] = entry.filename
-                result[f"{product}_max_date"] = max(dates) if dates else None
-                logger.info("[ORDERS] %s folder=%s files=%d max_date=%s", product.upper(), entry.filename, len(matched), result[f"{product}_max_date"])
+            newest_date, newest_filename = max(candidates, key=lambda item: (item[0], item[1]))
+            current_date = result[f"{product}_max_date"]
+            if current_date is None or newest_date > current_date:
+                result[f"{product}_order"] = entry.filename
+                result[f"{product}_max_date"] = newest_date
+                result[f"{product}_filename"] = newest_filename
+                logger.info(
+                    "[LATEST %s] folder=%s file=%s date=%s",
+                    product.upper(), entry.filename, newest_filename, newest_date,
+                )
+            elif newest_date == current_date:
+                # folders are mtime-descending, so retain the newer delivery
+                # already selected for this date.
+                logger.debug(
+                    "[ORDERS] %s has same date %s in older folder %s; keeping %s",
+                    product.upper(), newest_date, entry.filename, result[f"{product}_order"],
+                )
     return result
 
 
@@ -237,24 +237,18 @@ def _find_remote_geotiff(sftp, order_id: str, date: datetime.date, product: str)
     except Exception as exc:
         logger.warning("[%s] Cannot list order %s: %s", product.upper(), order_id, exc)
         return None
-    # candidates = [
-    #     name for name in files
-    #     if name.lower().endswith((".tif", ".tiff")) and marker in name.upper() and stamp in name.upper()
-    # ]
     candidates = [
         name
         for name in files
-        if name.lower().endswith(".tif")
+        if name.lower().endswith((".tif", ".tiff"))
         and marker in name.upper()
+        and stamp in name.upper()
     ]
 
     if not candidates:
         return None
 
-    candidates.sort(reverse=True)
-
-    return candidates[0]
-    return sorted(candidates)[0] if candidates else None
+    return max(candidates)
 
 
 def _download_geotiff(sftp, remote_path: str, destination: Path, label: str) -> None:
@@ -413,7 +407,13 @@ def already_complete(date: datetime.date, data_type: str) -> bool:
     return False
 
 
-def _download_product(date: datetime.date, sftp, order_id: Optional[str], product: str) -> bool:
+def _download_product(
+    date: datetime.date,
+    sftp,
+    order_id: Optional[str],
+    product: str,
+    remote_name: Optional[str] = None,
+) -> bool:
     label = product.upper()
     if already_complete(date, product):
         logger.info("[%s] %s already complete", label, date)
@@ -424,7 +424,7 @@ def _download_product(date: datetime.date, sftp, order_id: Optional[str], produc
     output = _output_path(date, product)
     incoming = output.with_suffix(".source.tif")
     try:
-        remote_name = _find_remote_geotiff(sftp, order_id, date, product)
+        remote_name = remote_name or _find_remote_geotiff(sftp, order_id, date, product)
         if not remote_name:
             raise FileNotFoundError(f"No {label} GeoTIFF for {date} in /Order/{order_id}")
         _download_geotiff(sftp, f"/Order/{order_id}/{remote_name}", incoming, label)
@@ -443,28 +443,72 @@ def _download_product(date: datetime.date, sftp, order_id: Optional[str], produc
         incoming.unlink(missing_ok=True)
 
 
-def download_pet(date: datetime.date, sftp, order_id: str) -> bool:
-    return _download_product(date, sftp, order_id, "pet")
+def download_pet(
+    date: datetime.date,
+    sftp,
+    order_id: str,
+    remote_name: Optional[str] = None,
+) -> bool:
+    return _download_product(date, sftp, order_id, "pet", remote_name)
 
 
-def download_rainfall(date: datetime.date, sftp, order_id: str) -> bool:
-    return _download_product(date, sftp, order_id, "rain")
+def download_rainfall(
+    date: datetime.date,
+    sftp,
+    order_id: str,
+    remote_name: Optional[str] = None,
+) -> bool:
+    return _download_product(date, sftp, order_id, "rain", remote_name)
+
+
+class _ParamikoSFTPConnection:
+    """Context-manager wrapper matching the pysftp connection surface we use."""
+
+    def __init__(self, host: str, username: str, password: str):
+        self.host = host
+        self.username = username
+        self.password = password
+        self.transport = None
+        self.sftp = None
+
+    def __enter__(self):
+        self.transport = paramiko.Transport((self.host, 22))
+        self.transport.connect(username=self.username, password=self.password)
+        self.sftp = paramiko.SFTPClient.from_transport(self.transport)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if self.sftp:
+                self.sftp.close()
+        finally:
+            if self.transport:
+                self.transport.close()
+
+    def __getattr__(self, name: str):
+        return getattr(self.sftp, name)
 
 
 def _make_sftp_connection():
     if not SFTP_AVAILABLE:
-        raise RuntimeError("pysftp not installed – install with: pip install pysftp")
+        raise RuntimeError(
+            "No SFTP client available – install pysftp or paramiko "
+            "(backend/requirements.txt already lists both)"
+        )
     # MOSDAC advertises IPv6 first on this network, but this host has no IPv6
-    # route. Resolve an A record explicitly so pysftp cannot select the
+    # route. Resolve an A record explicitly so SFTP clients cannot select the
     # unreachable AAAA record.
     try:
         host = socket.getaddrinfo(HOST, 22, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
     except socket.gaierror as exc:
         raise RuntimeError(f"Cannot resolve an IPv4 address for {HOST}: {exc}") from exc
-    options = pysftp.CnOpts()
-    options.hostkeys = None  # MOSDAC does not provide a verified host key.
-    logger.info("Opening MOSDAC SFTP connection to IPv4 address %s", host)
-    return pysftp.Connection(host, username=USER, password=PASS, cnopts=options)
+    if pysftp:
+        options = pysftp.CnOpts()
+        options.hostkeys = None  # MOSDAC does not provide a verified host key.
+        logger.info("Opening MOSDAC SFTP connection via pysftp to IPv4 address %s", host)
+        return pysftp.Connection(host, username=USER, password=PASS, cnopts=options)
+    logger.info("Opening MOSDAC SFTP connection via paramiko to IPv4 address %s", host)
+    return _ParamikoSFTPConnection(host, USER, PASS)
 
 
 # def _run_day(date: datetime.date, sftp, orders: Dict) -> Dict:
@@ -581,7 +625,7 @@ class MosdacDownloader:
         - If empty/None (e.g. Stage 2 couldn't scrape an order id from the
           MyOrder page UI, or judged no new order was needed), we still
           connect and let `_discover_orders` auto-pick the newest PET and
-          newest RAIN order folder by mtime + filename marker — the same
+          newest RAIN file by the data date embedded in its filename — the same
           fallback the CLI's `download_day()` uses. This avoids depending on
           a fragile UI-scraped "Order ID" that may not even match the real
           SFTP folder name.
@@ -598,13 +642,15 @@ class MosdacDownloader:
             with _make_sftp_connection() as sftp:
                 orders = _discover_orders(sftp, order_keys)
                 for product, function in (("pet", download_pet), ("rain", download_rainfall)):
-                    date, order = orders.get(f"{product}_max_date"), orders.get(f"{product}_order")
+                    date = orders.get(f"{product}_max_date")
+                    order = orders.get(f"{product}_order")
+                    filename = orders.get(f"{product}_filename")
                     if not date or not order:
                         result[product]["skipped"] += 1
                     elif already_complete(date, product):
                         self.logger.info("[%s] %s already complete", product.upper(), date)
                         result[product]["skipped"] += 1
-                    elif function(date, sftp, order):
+                    elif function(date, sftp, order, filename):
                         result[product]["downloaded"] += 1
                     else:
                         result[product]["failed"] += 1
